@@ -11,7 +11,11 @@
  *      <session_goal> section, placed first so the resuming LLM reads it.
  */
 import { strict as assert } from "node:assert";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, test } from "vitest";
+import { SessionDB } from "../../src/session/db.js";
 import { extractUserEvents } from "../../src/session/extract.js";
 import { buildResumeSnapshot, type StoredEvent } from "../../src/session/snapshot.js";
 
@@ -47,9 +51,40 @@ describe("capture: extractGoal", () => {
     assert.equal(goalOf("/goal    "), undefined);
   });
 
-  test("a /goal directive still has priority 1 (critical) so it survives trimming", () => {
+  test("a /goal directive has critical priority under the DB eviction contract", () => {
     const ev = extractUserEvents("/goal keep tests green").find((e) => e.category === "goal");
-    assert.equal(ev?.priority, 1);
+    assert.equal(ev?.priority, 4);
+  });
+});
+
+describe("storage: goal survives session event eviction", () => {
+  test("retains the goal when the per-session event cap evicts lower-priority events", () => {
+    const dir = mkdtempSync(join(tmpdir(), "context-mode-goal-"));
+    const db = new SessionDB({ dbPath: join(dir, "session.db") });
+    const sid = "goal-eviction";
+
+    try {
+      db.ensureSession(sid, "/tmp/context-mode-goal");
+      const goal = extractUserEvents("/goal preserve this objective").find((e) => e.category === "goal");
+      assert.ok(goal, "goal event should be extracted");
+      db.insertEvent(sid, goal, "UserPromptSubmit");
+
+      for (let i = 0; i < 1000; i++) {
+        db.insertEvent(sid, {
+          type: "file_read",
+          category: "file",
+          data: `file-${i}.ts`,
+          priority: 2,
+        }, "PostToolUse");
+      }
+
+      const goals = db.getEvents(sid, { type: "goal" });
+      assert.equal(db.getEventCount(sid), 1000);
+      assert.equal(goals.length, 1);
+      assert.equal(goals[0].data, "preserve this objective");
+    } finally {
+      db.close();
+    }
   });
 });
 

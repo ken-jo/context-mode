@@ -23,6 +23,9 @@
  * fundamentally broken.
  */
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 interface IntegrityResult {
   readonly ok: boolean;
   readonly missing: readonly string[];
@@ -81,6 +84,33 @@ async function loadHelper(): Promise<IntegrityModule | null> {
 void loadHelper();
 
 /**
+ * Files `start.mjs` needs to launch the MCP server, checked dependency-free
+ * (fs only) so this works even when the integrity helper
+ * (`scripts/plugin-cache-integrity.mjs`) is itself missing — a missing helper
+ * is itself a partial-install symptom, and the operator most needs to know
+ * whether the launch entrypoint survived.
+ *
+ * - `start.mjs` is the plugin `command` target (`.claude-plugin/plugin.json`)
+ *   and has NO fallback: if absent, `node ${CLAUDE_PLUGIN_ROOT}/start.mjs`
+ *   fails immediately and the MCP server never starts.
+ * - The server is loaded by start.mjs from `server.bundle.mjs`, falling back
+ *   to `build/server.js`; it is only "missing" when BOTH are absent.
+ */
+export function findMissingLaunchFiles(pluginRoot: string): string[] {
+  const missing: string[] = [];
+  if (!existsSync(join(pluginRoot, "start.mjs"))) {
+    missing.push("start.mjs");
+  }
+  if (
+    !existsSync(join(pluginRoot, "server.bundle.mjs")) &&
+    !existsSync(join(pluginRoot, "build", "server.js"))
+  ) {
+    missing.push("server.bundle.mjs (or build/server.js)");
+  }
+  return missing;
+}
+
+/**
  * Run the integrity check synchronously. If the helper module is
  * still loading (not yet cached) returns a FAIL with detail
  * "integrity helper not yet loaded" — caller should retry once the
@@ -104,6 +134,22 @@ export function checkPluginCacheIntegritySync(
     };
   }
   if (cachedError) {
+    // The integrity helper (scripts/plugin-cache-integrity.mjs) ships in
+    // package.json files[]; if it failed to load, the install is already
+    // partial. Don't stop at "helper unavailable" — directly surface whether
+    // the launch entrypoint survived, because a missing start.mjs / server
+    // bundle is exactly what stops the MCP server from starting (and is what
+    // an interrupted /ctx-upgrade swap leaves behind).
+    const launchMissing = findMissingLaunchFiles(pluginRoot);
+    if (launchMissing.length > 0) {
+      return {
+        status: "FAIL",
+        detail:
+          `partial install — critical launch files missing: ${launchMissing.join(", ")} ` +
+          `(integrity helper also missing: ${cachedError}); the MCP server cannot start. ` +
+          `Reinstall: npm install -g context-mode@latest`,
+      };
+    }
     return {
       status: "FAIL",
       detail: `integrity helper unavailable: ${cachedError}`,

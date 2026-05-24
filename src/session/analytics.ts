@@ -211,7 +211,8 @@ export const categoryLabels: Record<string, string> = {
   // Configuration & intent
   rule: "Project rules (CLAUDE.md)",
   prompt: "Your requests saved",
-  intent: "Session goal",
+  intent: "Session intent",
+  goal: "Session goal",
   role: "Behavior rules",
   constraint: "Constraints you set",
   // Tools & delegation

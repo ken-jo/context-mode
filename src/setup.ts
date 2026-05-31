@@ -310,12 +310,17 @@ async function applyHooksViaAdapter(
   if (!HOOK_CAPABLE.has(platform)) {
     return { changed: false, desc: "Hooks: not applicable for this platform" };
   }
-  // configureAllHooks is destructive. For --check we shortcut: report a
-  // single line and let the user re-run without --check. A real diff would
-  // require running configureAllHooks in a temp-file mode that no adapter
-  // currently exposes — out of scope for the MVP.
+  // Items DI-1 + DI-6 — `configureAllHooks` is now idempotent across
+  // claude-code, gemini-cli, cursor, qwen-code, codex: it skips the write
+  // and returns an empty `changes` array when the on-disk entries already
+  // match desired. That means `context-mode setup` is safe to re-run any
+  // time; `--check` mode just suggests the user run setup outright since
+  // it's a no-op when state is good.
   if (check) {
-    return { changed: true, desc: "Hooks: WOULD CONFIGURE (re-run without --check to apply)" };
+    return {
+      changed: true,
+      desc: "Hooks: setup is idempotent — re-run `context-mode setup` to refresh (no-op when state is current)",
+    };
   }
   const adapter = await getAdapter(platform);
   const changes = adapter.configureAllHooks(pluginRoot);

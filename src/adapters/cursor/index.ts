@@ -538,10 +538,16 @@ export class CursorAdapter extends BaseAdapter implements HookAdapter {
       failClosed: false,
     }, changes);
 
-    settings.version = 1;
-    settings.hooks = hooks;
-    this.writeSettings(settings as unknown as Record<string, unknown>);
-    changes.push(`Wrote native Cursor hooks to ${this.getSettingsPath()}`);
+    // Item DI-1 — skip write + suppress "Wrote …" change line when none
+    // of the upsertHookEntry calls reported a real diff. Without this guard
+    // `setup --check` always reports drift for cursor even when the
+    // hooks file is byte-identical to desired.
+    if (changes.length > 0) {
+      settings.version = 1;
+      settings.hooks = hooks;
+      this.writeSettings(settings as unknown as Record<string, unknown>);
+      changes.push(`Wrote native Cursor hooks to ${this.getSettingsPath()}`);
+    }
     return changes;
   }
 
@@ -629,8 +635,12 @@ export class CursorAdapter extends BaseAdapter implements HookAdapter {
     const idx = existing.findIndex((candidate) => isContextModeHook(candidate, hookType));
 
     if (idx >= 0) {
-      existing[idx] = entry;
-      changes.push(`Updated existing ${hookType} hook entry`);
+      // Item DI-1 — only report change when the entry actually differs
+      // from desired. Skip otherwise so `setup --check` is honest.
+      if (JSON.stringify(existing[idx]) !== JSON.stringify(entry)) {
+        existing[idx] = entry;
+        changes.push(`Updated existing ${hookType} hook entry`);
+      }
     } else {
       existing.push(entry);
       changes.push(`Added ${hookType} hook entry`);

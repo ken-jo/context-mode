@@ -472,8 +472,14 @@ export class GeminiCLIAdapter extends BaseAdapter implements HookAdapter {
           return entryHooks?.some((h) => h.command?.includes("context-mode"));
         });
         if (idx >= 0) {
-          existing[idx] = entry;
-          changes.push(`Updated existing ${config.name} hook entry`);
+          // Item DI-1 — only report "Updated existing..." when the entry
+          // actually differs from desired. Without this guard, every
+          // configureAllHooks call (including those triggered by setup
+          // --check) reports a phantom change even when state is correct.
+          if (JSON.stringify(existing[idx]) !== JSON.stringify(entry)) {
+            existing[idx] = entry;
+            changes.push(`Updated existing ${config.name} hook entry`);
+          }
         } else {
           existing.push(entry);
           changes.push(`Added ${config.name} hook entry`);
@@ -485,8 +491,13 @@ export class GeminiCLIAdapter extends BaseAdapter implements HookAdapter {
       }
     }
 
-    settings.hooks = hooks;
-    this.writeSettings(settings);
+    // DI-1 — skip write when nothing changed. The previous behavior
+    // re-wrote settings.json on every call even when bytes were
+    // identical, churning mtimes and triggering watchers.
+    if (changes.length > 0) {
+      settings.hooks = hooks;
+      this.writeSettings(settings);
+    }
     return changes;
   }
 

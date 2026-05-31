@@ -557,8 +557,11 @@ export class ClaudeCodeAdapter extends ClaudeCodeBaseAdapter implements HookAdap
             isContextModeHook(e as { hooks?: Array<{ command?: string }> }, hookType),
           );
           if (idx >= 0) {
-            existing[idx] = entry;
-            changes.push(`Updated existing ${hookType} hook entry`);
+            // Item DI-1 — only report change when entry actually differs.
+            if (JSON.stringify(existing[idx]) !== JSON.stringify(entry)) {
+              existing[idx] = entry;
+              changes.push(`Updated existing ${hookType} hook entry`);
+            }
           } else {
             existing.push(entry);
             changes.push(`Added ${hookType} hook entry`);
@@ -579,8 +582,11 @@ export class ClaudeCodeAdapter extends ClaudeCodeBaseAdapter implements HookAdap
             isContextModeHook(e as { hooks?: Array<{ command?: string }> }, hookType),
           );
           if (idx >= 0) {
-            existing[idx] = entry;
-            changes.push(`Updated existing ${hookType} hook entry`);
+            // Item DI-1 — only report change when entry actually differs.
+            if (JSON.stringify(existing[idx]) !== JSON.stringify(entry)) {
+              existing[idx] = entry;
+              changes.push(`Updated existing ${hookType} hook entry`);
+            }
           } else {
             existing.push(entry);
             changes.push(`Added ${hookType} hook entry`);
@@ -593,8 +599,12 @@ export class ClaudeCodeAdapter extends ClaudeCodeBaseAdapter implements HookAdap
       }
     }
 
-    settings.hooks = hooks;
-    this.writeSettings(settings);
+    // DI-1 — skip write when nothing changed. Avoids settings.json mtime
+    // churn that triggers watcher-based reloads on every doctor run.
+    if (changes.length > 0) {
+      settings.hooks = hooks;
+      this.writeSettings(settings);
+    }
     return changes;
   }
 

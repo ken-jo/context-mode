@@ -336,8 +336,11 @@ export class QwenCodeAdapter extends ClaudeCodeBaseAdapter implements HookAdapte
           ) ?? false;
         });
         if (idx >= 0) {
-          existing[idx] = entry;
-          changes.push(`Updated ${name} hook`);
+          // Item DI-1 — only report change when the entry actually differs.
+          if (JSON.stringify(existing[idx]) !== JSON.stringify(entry)) {
+            existing[idx] = entry;
+            changes.push(`Updated ${name} hook`);
+          }
         } else {
           existing.push(entry);
           changes.push(`Added ${name} hook`);
@@ -349,8 +352,12 @@ export class QwenCodeAdapter extends ClaudeCodeBaseAdapter implements HookAdapte
       }
     }
 
-    settings.hooks = hooks;
-    this.writeSettings(settings);
+    // DI-1 — skip the write when neither Phase 1 (stale removal) nor
+    // Phase 2 (fresh registration) made an observable change.
+    if (changes.length > 0) {
+      settings.hooks = hooks;
+      this.writeSettings(settings);
+    }
     return changes;
   }
 

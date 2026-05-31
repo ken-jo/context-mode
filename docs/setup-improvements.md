@@ -454,6 +454,39 @@ compatibility is an explicit audit dimension.
   managed platforms; primary defects fixed).
 - **Result: FAIL (2 major) → fixed → re-loop.** 939 tests pass, tsc clean.
 
+### Iteration 3 — 0 MAJOR (exit condition met) + MED cleanup
+
+- **0 confirmed HIGH** across 15 platform triangles + cross-cutting + Windows
+  audit (51 agents, official docs re-verified, adversarial). The loop's
+  stop condition (no major issues) is satisfied.
+- Audit agents auto-applied a few MEDIUM fixes mid-run; these were reviewed +
+  test-verified before keeping (opencode/kilo global-config-dir resolution via
+  getConfigDir; kilo/pi hint specificity).
+- [x] Fixed this iteration: cli-upgrade-verification.test.ts (5 RED stale
+  assertions vs the SOT heal suite — a real branch-RED I introduced with the
+  Item-B consolidation); zed Windows path (`zedSettingsPath()` SOT →
+  `%LOCALAPPDATA%\Zed`, web-verified — the audit agents' `%APPDATA%\Zed` was
+  wrong); jetbrains docs `--adapter` flag (non-existent) → `context-mode
+  upgrade`; setup unknown/invalid-arg guard via REGISTERED_PLATFORM_IDS.
+- **Windows (user directive):** zed path corrected to `%LOCALAPPDATA%\Zed`;
+  opencode/kilo global tier now honors `XDG_CONFIG_HOME`/`APPDATA` via
+  getConfigDir. All web-verified.
+- [ ] **Deferred (documented, non-blocking):**
+  - **opencode getConfigDir APPDATA-vs-xdg on Windows** — official sst/opencode
+    uses xdg-basedir (`~/.config`, no APPDATA) on all platforms, but the
+    adapter's win32 branch (`%APPDATA%`) carries a maintainer comment citing
+    opencode #265/#251/#8235. paths() is now internally consistent with
+    getConfigDir either way; flipping getConfigDir overrides that cited fix →
+    maintainer call.
+  - **openclaw `$OPENCLAW_STATE_DIR` read** — installer writes there; doctor
+    reads ~/.openclaw. Externally-managed platform.
+  - **valid-JSONC merge drops comments** on the atomic rewrite (servers are
+    preserved; only comments are lost) — acceptable, could warn.
+  - **upgrade internal doctor-verify runs with cwd=pluginRoot** while writes
+    target process.cwd() — project-scoped verify could inspect the wrong dir.
+- **Result: PASS — 0 major. Confirmation iteration run against the final tree
+  (post-MED-cleanup) to certify stability.** 1108/1108 tests, tsc clean.
+
 ## Open questions
 
 - [ ] `setup` should it accept `--scope user|project|local` like `claude mcp add`?

@@ -384,6 +384,47 @@ missed. All fixed + regression-guarded this session:
   codex) is left for the maintainer since `readSettings` is shared with the
   upgrade path + many callers.
 
+## Loop verification (run until 0 major issues)
+
+User directive: re-run the whole-branch dynamic workflow (15 platform
+triangles + cross-cutting audit, **official docs re-verified each loop**)
+until an iteration finds 0 confirmed MAJOR (HIGH) issues. Windows
+compatibility is an explicit audit dimension.
+
+### Iteration 1 — 3 MAJOR found + fixed
+
+- [x] **L1-1 (HIGH) zed context_servers shape.** setup wrote nested
+  `{ command: { path, args } }`; current Zed only accepts the FLAT
+  `{ command: "context-mode", args: [] }` (verified against
+  zed-industries/zed `crates/settings_content/src/project.rs` — the Stdio
+  variant flattens `ContextServerCommand` and renames `path`→`command`). The
+  nested form fails serde under the `#[serde(untagged)]` enum and Zed silently
+  drops the server. Fixed `setup.ts` + README + the misleading Note. Guard:
+  matrix test asserts zed `command` is a string.
+- [x] **L1-2 (HIGH) GitHub Copilot hook shape.** `copilot-base`
+  generateHookConfig/configureAllHooks emitted the Claude-Code nested
+  `{ matcher, hooks: [...] }`; the Copilot runtime + the maintainer's verified
+  templates use FLAT `{ type, command }` — the nested shape never fires. Fixed
+  to flat (matches `configs/{vscode,jetbrains}-copilot/hooks.json`). Guards:
+  generateHookConfig tests assert no `matcher`/inner `hooks`.
+- [x] **L1-3 (HIGH) readJsonForMerge JSONC.** a VALID commented
+  `.vscode/mcp.json` (officially JSONC) failed strict parse → backed-up + reset,
+  dropping the user's sibling servers. Now strips JSONC comments + trailing
+  commas before parse so valid commented files merge in place; only genuinely
+  unparseable files get the `.broken` backup.
+- [x] **MED/LOW:** uninstall exit code on write failure; CONTEXT_MODE_PLATFORM
+  override derived from `REGISTERED_PLATFORM_IDS` (was missing `openclaw`);
+  postinstall section-0 + doctor leftover-check honor `$CLAUDE_CONFIG_DIR`;
+  omp/pi hints lead with the doctor-read file+key; unknown-platform guard
+  (warn + supported list + exit 2); removed stale `@ts-expect-error` (build
+  break); publish-tarball file-count budget recalibrated for a built tree.
+- **Windows:** all new/changed code uses `resolve()`/`join()`/`homedir()` and
+  `~`-expansion handles both separators — no POSIX-only path construction.
+- **Deferred (documented):** kilo doctor read-paths (maintainer-verified;
+  manual platform); JetBrains `"version":1` (maintainer's verified template
+  omits it).
+- **Result: FAIL (3 major) → fixed → re-loop.** 936/936 tests, tsc clean.
+
 ## Open questions
 
 - [ ] `setup` should it accept `--scope user|project|local` like `claude mcp add`?

@@ -487,6 +487,34 @@ compatibility is an explicit audit dimension.
 - **Result: PASS — 0 major. Confirmation iteration run against the final tree
   (post-MED-cleanup) to certify stability.** 1108/1108 tests, tsc clean.
 
+### Iteration 4 — CONVERGED (0 major, 0 medium)
+
+Confirmation run against the post-iteration-3 tree: **0 HIGH + 0 MEDIUM**,
+only 2 LOW — both fixed:
+
+- [x] **zed args clobber (LOW):** dropped `args: []` from the zed desired so a
+  re-run no longer resets a user's hand-edited `context_servers.args`.
+- [x] **doctor JSONC consistency (LOW):** routed the config-read paths of the
+  6 remaining adapters (gemini-cli, qwen-code, kiro, antigravity,
+  vscode-copilot, cursor) through `util/jsonc.parseJsonc`, so doctor reads the
+  same commented configs setup writes JSONC-tolerant. zed + openclaw were
+  already converted. The `util/jsonc` SOT is now used uniformly. Guard:
+  parametrized JSONC test across all 6 + zed.
+- Two audit-agent edits this iteration were reviewed + kept (openclaw
+  readSettings JSONC; detect.ts header SOT alignment).
+
+**LOOP CONVERGED.** Two consecutive iterations (3 and 4) found 0 major issues;
+iteration 4 found 0 medium as well. Trend across the loop: **3 → 2 → 0 → 0**
+major. The post-LOW-cleanup tree is 1114/1114 tests, tsc clean. Windows was an
+explicit audit dimension throughout (zed `%LOCALAPPDATA%`, opencode/kilo XDG
+honored, all paths via resolve/join/homedir).
+
+Net of the whole loop (3 iterations of fixes): every confirmed setup↔doctor
+divergence, data-loss path, and platform-load break across all 15 agent CLIs
+was fixed + regression-guarded; official docs were re-verified each iteration;
+contested pre-existing items (opencode APPDATA-vs-xdg, openclaw state-dir) are
+documented for the maintainer rather than blind-edited.
+
 ## Open questions
 
 - [ ] `setup` should it accept `--scope user|project|local` like `claude mcp add`?

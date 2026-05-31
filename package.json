@@ -85,7 +85,6 @@
     "scripts/heal-installed-plugins.mjs",
     "scripts/plugin-cache-integrity.mjs",
     "scripts/lib/runtime-precheck.mjs",
-    ".npmrc",
     "README.md",
     "LICENSE"
   ],

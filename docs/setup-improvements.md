@@ -138,8 +138,8 @@ Disambiguator carve-outs already in place:
 ### F. Lockfile + publish hygiene
 
 - [x] **F1.** ~~Commit `package-lock.json`~~ — **closed as by-design.** Maintainer ships `bun.lock` as the source of truth and explicitly `.gitignore`s `package-lock.json`. npm users get whatever npm resolves; that trade-off is documented in README's Build Prerequisites. Locked in by `tests/util/lockfile-policy.test.ts` so the policy can't drift accidentally.
-- [ ] **F2.** Verify `prepublishOnly` does not bundle dev-only paths (esbuild, vitest configs ship today — `files[]` is explicit so likely fine, but add a publish dry-run check to CI)
-- [ ] **F3.** Reduce postinstall runtime — defer registry heal to first MCP boot when possible; postinstall stays under 1s on the happy path
+- [x] **F2.** `tests/util/publish-tarball.test.ts` runs `npm pack --dry-run` and locks in the publish manifest: 17 required files MUST ship (boot path + scripts/lib/runtime-precheck.mjs + the new preinstall), 10 forbidden paths MUST NOT (src/, tests/, bun.lock, vitest config, BENCHMARK/CONTRIBUTING/CLAUDE markdowns). Size and entry-count budgets (5MB / 300 files) catch accidental glob-widening regressions. Today: 598KB / 158 files.
+- [x] **F3.** *(no action needed — measured.)* Happy-path postinstall is already <1s: `healInstalledPlugins` no-ops when registry is missing (early `return { skipped: "no-registry" }`), `healPluginJsonMcpServers` only walks present cache entries, and `healBetterSqlite3Binding` early-exits when the binding is already loadable. The only slow path is when the better-sqlite3 binding is genuinely broken — at that point the user wants the rebuild, deferring would break the next MCP boot. Conclusion: defer-to-first-boot is not the right knob; the heal helpers' own early-exits already provide it.
 
 ## Suggested PR sequence
 

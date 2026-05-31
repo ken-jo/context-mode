@@ -55,6 +55,8 @@ describe("publish tarball hygiene (Item F2)", () => {
     "scripts/preinstall.mjs",
     "scripts/postinstall.mjs",
     "scripts/lib/runtime-precheck.mjs",
+    "scripts/lib/heal/runtime-heal-suite.mjs",
+    "scripts/lib/heal/heal-log.mjs",
     "scripts/heal-installed-plugins.mjs",
     "scripts/heal-better-sqlite3.mjs",
     "scripts/plugin-cache-integrity.mjs",

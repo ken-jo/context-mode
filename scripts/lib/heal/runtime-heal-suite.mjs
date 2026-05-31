@@ -31,6 +31,7 @@ import {
   healPluginJsonMcpServers,
   sweepStaleMcpJson,
 } from "../../heal-installed-plugins.mjs";
+import { appendHealLog } from "./heal-log.mjs";
 
 /**
  * @typedef {Object} RuntimeHealReport
@@ -134,6 +135,20 @@ export function runRuntimeHealSuite({ pluginKey, claudeConfigDir, phase }) {
 
   // Phase note — useful for telemetry / doctor surface.
   report.notes.push(`phase=${phase}`);
+
+  // Item B4 — append one JSON line to ${claudeConfigDir}/context-mode/heal.log.
+  // Best-effort: never throws, never blocks. doctor reads the same file to
+  // surface "HEAL ran N times in the last 7 days, healed X of them".
+  appendHealLog({
+    claudeConfigDir,
+    entry: {
+      phase,
+      healed: report.healed,
+      skipped: report.skipped,
+      errors: report.errors,
+      sweptCount: report.swept.length,
+    },
+  });
 
   return report;
 }

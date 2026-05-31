@@ -85,6 +85,8 @@
     "scripts/heal-installed-plugins.mjs",
     "scripts/plugin-cache-integrity.mjs",
     "scripts/lib/runtime-precheck.mjs",
+    "scripts/lib/heal/runtime-heal-suite.mjs",
+    "scripts/lib/heal/heal-log.mjs",
     "README.md",
     "LICENSE"
   ],

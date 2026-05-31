@@ -39,6 +39,8 @@ const REPO_PRECHECK = resolve(REPO_ROOT, "scripts", "lib", "runtime-precheck.mjs
 // Item B of docs/setup-improvements.md — postinstall.mjs imports
 // `runRuntimeHealSuite` from scripts/lib/heal/runtime-heal-suite.mjs.
 const REPO_HEAL_SUITE = resolve(REPO_ROOT, "scripts", "lib", "heal", "runtime-heal-suite.mjs");
+// Item B4 — runtime-heal-suite.mjs imports `appendHealLog` from heal-log.mjs.
+const REPO_HEAL_LOG = resolve(REPO_ROOT, "scripts", "lib", "heal", "heal-log.mjs");
 const KEY = "context-mode@context-mode";
 
 /**
@@ -68,6 +70,7 @@ function stagePostinstallPackage(): {
   const scriptsLibHealDir = join(scriptsLibDir, "heal");
   mkdirSync(scriptsLibHealDir, { recursive: true });
   copyFileSync(REPO_HEAL_SUITE, join(scriptsLibHealDir, "runtime-heal-suite.mjs"));
+  copyFileSync(REPO_HEAL_LOG, join(scriptsLibHealDir, "heal-log.mjs"));
   // postinstall imports ../hooks/normalize-hooks.mjs — provide a no-op stub
   // so the import does not crash. Real postinstall wraps the import in
   // try/catch so even a missing file is fine, but copying a stub keeps the
@@ -280,6 +283,7 @@ describe("postinstall — /ctx-upgrade tmpdir staging guard", () => {
   const scriptsLibHealDir = join(scriptsLibDir, "heal");
   mkdirSync(scriptsLibHealDir, { recursive: true });
   copyFileSync(REPO_HEAL_SUITE, join(scriptsLibHealDir, "runtime-heal-suite.mjs"));
+  copyFileSync(REPO_HEAL_LOG, join(scriptsLibHealDir, "heal-log.mjs"));
     // Use the REAL normalize-hooks.mjs so we can detect a (buggy) mutation.
     copyFileSync(
       resolve(REPO_ROOT, "hooks", "normalize-hooks.mjs"),

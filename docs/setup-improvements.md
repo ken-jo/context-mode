@@ -122,7 +122,7 @@ Disambiguator carve-outs already in place:
   `tests/util/heal-installed-plugins.test.ts` — confirmed still passing
   after the consolidation. Suite-level behavior is exercised indirectly
   by `tests/util/postinstall-heal.test.ts` (spawn-based integration).
-- [ ] **B4.** Per-phase manifest for doctor (`heal.log` in `${CLAUDE_CONFIG_DIR}/context-mode/`) — deferred to a follow-up PR; the structure to record it is already there (`runRuntimeHealSuite` returns a structured report), but the read-back surface in doctor isn't needed for the consolidation itself.
+- [x] **B4.** `scripts/lib/heal/heal-log.mjs` now writes one JSON line per `runRuntimeHealSuite` invocation to `${CLAUDE_CONFIG_DIR}/context-mode/heal.log` (capped at 500 lines, append-only). `context-mode doctor` reads the last 7-day window and prints `Heal history: PASS — N run(s), healed/total mutated state (errors: E, swept: S); phases postinstall: X, mcp-boot: Y` so users can spot upstream regressions that force the heal block to do work every boot. Unit coverage in `tests/util/heal-log.test.ts` (6 cases — append/read/summarize/cap/malformed-line tolerance/per-phase aggregation).
 
 ### C. Linux Node<22.5 hard-fail UX
 

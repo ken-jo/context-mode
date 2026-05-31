@@ -919,6 +919,38 @@ async function doctor(): Promise<number> {
     }
   }
 
+  // Item B4 — heal history summary. Reads $CLAUDE_CONFIG_DIR/context-mode/heal.log
+  // (appended by every runRuntimeHealSuite invocation in postinstall + start.mjs)
+  // and prints a 7-day rollup so the user can see whether the heal block is
+  // actually doing work (high healed/total ratio = upstream regression).
+  p.log.step("Checking heal history (last 7 days)...");
+  try {
+    const { summarizeHealLog } = await import("../scripts/lib/heal/heal-log.mjs");
+    const summary = summarizeHealLog({
+      claudeConfigDir: resolveClaudeConfigDir(),
+      windowDays: 7,
+    });
+    if (summary === null) {
+      p.log.info(color.dim("Heal history: no entries yet (heal log is created on first MCP boot or `npm install -g context-mode`)"));
+    } else {
+      const phases = Object.entries(summary.lastPhases)
+        .map(([phase, n]) => `${phase}: ${n}`)
+        .join(", ");
+      const ratio = summary.total === 0
+        ? "0/0"
+        : `${summary.healed}/${summary.total}`;
+      p.log.success(
+        color.green(`Heal history: PASS`) +
+          color.dim(` — ${summary.total} run(s), ${ratio} mutated state (errors: ${summary.errors}, swept: ${summary.swept}); phases ${phases}`),
+      );
+    }
+  } catch (err) {
+    p.log.warn(
+      color.yellow("Heal history: SKIP") +
+        color.dim(` — ${err instanceof Error ? err.message : String(err)}`),
+    );
+  }
+
   // Version check — adapter-aware
   p.log.step("Checking versions...");
   const localVersion = getLocalVersion();

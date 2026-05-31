@@ -1636,6 +1636,34 @@ async function upgrade(opts?: { platform?: string }) {
     throw new Error(`Hook configuration failed: ${message}`);
   }
 
+  // Step 4b: Refresh MCP server registration — Item A7 of
+  // docs/setup-improvements.md. Hooks alone are insufficient for the
+  // json-stdio platforms with a separate `mcp.json`/`settings.json`
+  // mcpServers block (gemini-cli, vscode-copilot, cursor, qwen-code,
+  // kiro, antigravity, zed). Without this step a stale or never-written
+  // mcp registration silently survives /ctx-upgrade.
+  try {
+    const { refreshMcpRegistration } = await import("./setup.js");
+    // detection.platform may be `undefined` when no explicit --platform was
+    // supplied (Parameters<typeof getAdapter>[0] is PlatformId | undefined);
+    // fall back to the same detect call getAdapter uses internally.
+    const concretePlatform = detection.platform ?? detectPlatform().platform;
+    const mcpResult = refreshMcpRegistration(concretePlatform);
+    if (mcpResult === null) {
+      // Platform either has no separate mcp file (claude-code marketplace,
+      // opencode in-process plugin) or is managed externally — no-op is correct.
+    } else if (mcpResult.changed) {
+      p.log.success(color.green("MCP registration refreshed") + color.dim(` — ${mcpResult.path}`));
+      changes.push(mcpResult.desc);
+    } else {
+      p.log.info(color.dim(mcpResult.desc));
+    }
+  } catch (err: unknown) {
+    // Never block upgrade on a registration refresh failure — best-effort.
+    const message = err instanceof Error ? err.message : String(err);
+    p.log.warn(color.yellow("MCP registration refresh skipped") + color.dim(` — ${message}`));
+  }
+
   // Step 5: Set hook script permissions — adapter-aware
   p.log.step("Setting hook script permissions...");
   const permSet = adapter.setHookPermissions(pluginRoot);

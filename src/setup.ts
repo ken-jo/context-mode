@@ -166,6 +166,31 @@ const MCP_REGISTRATIONS: Partial<Record<PlatformId, McpRegHandler>> = {
   },
 };
 
+/**
+ * Public helper — invoked from `context-mode upgrade` so the MCP server
+ * registration refreshes alongside hooks when the user runs /ctx-upgrade.
+ * Without this call the upgrade only touches hooks + plugin-registry; any
+ * `.cursor/mcp.json` / `~/.gemini/settings.json` mcpServers entry that was
+ * never written (or got stale) silently lingers.
+ *
+ * Item A7 of docs/setup-improvements.md.
+ *
+ * @returns null when the platform has no separate mcp.json/settings.json to
+ * register against (e.g. claude-code uses the plugin marketplace).
+ */
+export function refreshMcpRegistration(
+  platform: PlatformId,
+  opts: { check?: boolean; scope?: "user" | "project"; projectDir?: string } = {},
+): { changed: boolean; path?: string; desc: string } | null {
+  return applyMcpRegistration(platform, {
+    check: opts.check ?? false,
+    scope: opts.scope ?? (platform === "vscode-copilot" || platform === "cursor" || platform === "kiro" || platform === "antigravity"
+      ? "project"
+      : "user"),
+    projectDir: opts.projectDir ?? process.cwd(),
+  });
+}
+
 function applyMcpRegistration(
   platform: PlatformId,
   opts: { check: boolean; scope: "user" | "project"; projectDir: string },

@@ -279,14 +279,19 @@ kill doc-misread false positives. 8 issues survived.
   Recommend the maintainer re-source each against current upstream and demote
   to `detect:false` or remove. Benign at runtime today (`|| process.cwd()`
   fallbacks).
-- [ ] **DI-9 — doc accuracy nits (LOW, docs-only).** `docs/platform-support.md`:
-  line 303 says antigravity has no env vars (contradicts `ANTIGRAVITY_CLI_ALIAS`);
-  the OMP section (≈616-652) lists a fictional `OMP_PROCESSING_AGENT_DIR`,
-  filename `mcp_config.json` (should be `mcp.json`), and `PI.md` (should be
-  `SYSTEM.md`/`AGENTS.md`); the kiro `clientInfo.name="Kiro CLI"` detection
-  is cited to kirodotdev/Kiro #5205 which is actually an LSP null-clientInfo
-  bug, not proof of an MCP-emitted name (kiro detection still works via the
-  `~/.kiro` config-dir tier). Runtime is correct in all three; docs lag.
+- [x] **DI-9 — doc accuracy nits (LOW, docs-only).** Fixed in
+  `docs/platform-support.md` after verifying each claim against the actual
+  adapter code (the authoritative runtime):
+  - antigravity "No verified env vars" → corrected to document
+    `ANTIGRAVITY_CLI_ALIAS` (registry.ts) + the gemini-cli detect-ide.ts source.
+  - OMP section + the two summary-table cells: `OMP_PROCESSING_AGENT_DIR` →
+    `PI_CODING_AGENT_DIR` (matches `OMPAdapter.getAgentDir`),
+    `mcp_config.json` → `mcp.json` (matches `getSettingsPath`),
+    `PI.md` → `SYSTEM.md` / `AGENTS.md` (matches `getInstructionFiles`).
+  - kiro `clientInfo.name="Kiro CLI"` line annotated best-effort (the cited
+    #5205 is an LSP null-clientInfo bug; detection falls back to the
+    `~/.kiro/` config-dir tier, which is by-design env-var-less).
+  Runtime unchanged — these were doc lag against already-correct code.
 
 ### Platforms verified CLEAN
 

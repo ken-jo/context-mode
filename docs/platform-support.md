@@ -44,9 +44,9 @@ This puts the `context-mode` binary in PATH, which is required for:
 | **Can modify output** | Yes | Yes | Yes | Yes | No | Yes (caveat) | No | -- | -- | -- |
 | **Can inject session context** | Yes | Yes | Yes | Yes | Yes | -- | Yes | -- | -- | -- |
 | **Can block tools** | Yes | Yes | Yes | Yes | Yes | Yes (throw) | Yes | -- | -- | -- |
-| **Config location** | `~/.claude/settings.json` | `~/.gemini/settings.json` | `.github/hooks/*.json` | `.github/hooks/*.json` | `.cursor/hooks.json` or `~/.cursor/hooks.json` | `opencode.json` | `~/.codex/hooks.json` + `~/.codex/config.toml` | `~/.gemini/antigravity/mcp_config.json` | `~/.kiro/settings/mcp.json` | `~/.omp/agent/mcp_config.json` |
+| **Config location** | `~/.claude/settings.json` | `~/.gemini/settings.json` | `.github/hooks/*.json` | `.github/hooks/*.json` | `.cursor/hooks.json` or `~/.cursor/hooks.json` | `opencode.json` | `~/.codex/hooks.json` + `~/.codex/config.toml` | `~/.gemini/antigravity/mcp_config.json` | `~/.kiro/settings/mcp.json` | `~/.omp/agent/mcp.json` |
 | **Session ID field** | `session_id` | `session_id` | `sessionId` (camelCase) | `sessionId` (camelCase) | `conversation_id` | `sessionID` (camelCase) | N/A | N/A | N/A | N/A |
-| **Project dir env** | `CLAUDE_PROJECT_DIR` | `GEMINI_PROJECT_DIR` | `CLAUDE_PROJECT_DIR` | `CLAUDE_PROJECT_DIR` | stdin `workspace_roots` | `ctx.directory` (plugin init) | N/A | N/A | N/A | `OMP_PROCESSING_AGENT_DIR` |
+| **Project dir env** | `CLAUDE_PROJECT_DIR` | `GEMINI_PROJECT_DIR` | `CLAUDE_PROJECT_DIR` | `CLAUDE_PROJECT_DIR` | stdin `workspace_roots` | `ctx.directory` (plugin init) | N/A | N/A | N/A | `PI_CODING_AGENT_DIR` |
 | **MCP/tool naming** | `mcp__server__tool` | `mcp__server__tool` | `f1e_` prefix | `f1e_` prefix | `MCP:<tool>` in hook payloads | native `ctx_*` plugin tools | `mcp__server__tool` | `mcp__server__tool` | `mcp__server__tool` | `mcp__server__tool` |
 | **Hook command format** | `context-mode hook claude-code <event>` | `context-mode hook gemini-cli <event>` | `context-mode hook vscode-copilot <event>` | `context-mode hook jetbrains-copilot <event>` | `context-mode hook cursor <event>` | TS plugin (no command) | `context-mode hook codex <event>` | N/A | N/A |
 | **Hook registration** | settings.json hooks object | settings.json hooks object | `.github/hooks/*.json` | `.github/hooks/*.json` | `hooks.json` native hook arrays | opencode.json plugin array | `~/.codex/hooks.json` | N/A | N/A |
@@ -300,7 +300,7 @@ Google Antigravity is an AI-powered IDE by Google/DeepMind. It shares the `~/.ge
 **Known Issues / Caveats:**
 - No hook support — only routing instruction files for enforcement (~60% compliance)
 - Shares `~/.gemini/` directory with Gemini CLI — session DB uses project hash to prevent collision
-- No verified Antigravity-specific environment variables exist
+- Detection signal: `ANTIGRAVITY_CLI_ALIAS` env var (the canonical Antigravity marker checked by google-gemini/gemini-cli `packages/core/src/ide/detect-ide.ts`), listed before vscode-copilot in the env-var registry; falls back to MCP `clientInfo.name: "antigravity-client"` and the `~/.gemini/` config dir
 
 **Sources:**
 - Config path: [Gemini CLI Issue #16058](https://github.com/google-gemini/gemini-cli/issues/16058)
@@ -318,7 +318,7 @@ Google Antigravity is an AI-powered IDE by Google/DeepMind. It shares the `~/.ge
 Kiro is an AWS agentic IDE and CLI. It supports MCP servers via `~/.kiro/settings/mcp.json` using the standard `mcpServers` JSON format. Hook support for Kiro CLI (JSON stdin + exit code 2 blocking, `preToolUse`/`postToolUse`) is verified in the Kiro CLI docs but not yet implemented in context-mode — planned for Phase 2.
 
 **Detection:**
-- Auto-detected via MCP protocol handshake (`clientInfo.name: "Kiro CLI"`)
+- Auto-detected via MCP protocol handshake (`clientInfo.name: "Kiro CLI"`) — best-effort; the cited issue #5205 is an LSP null-clientInfo bug, so the MCP handshake name is unconfirmed. Detection reliably falls back to the `~/.kiro/` config-dir tier (the registry has no Kiro env-var signal by design).
 
 **Configuration:**
 - Global: `~/.kiro/settings/mcp.json` (JSON format, standard `mcpServers` object)
@@ -619,7 +619,7 @@ The hook adapter exists only to satisfy the interface contract — every parser 
 
 **Hook Paradigm:** MCP-only
 
-[Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi) is a Pi-compatible harness that stores its agent state under `~/.omp/agent/` (overridable via `OMP_PROCESSING_AGENT_DIR`). Before the dedicated adapter, OMP detection fell through to `pi` and storage rooted under another harness's directory (typically `~/.claude/`), per [issue #473](https://github.com/mksglu/context-mode/issues/473). The OMP adapter exists primarily to keep `~/.omp/context-mode/` isolated, not to provide hook integration — OMP, like Antigravity/Kiro/Zed, runs context-mode purely as an MCP server.
+[Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi) is a Pi-compatible harness that stores its agent state under `~/.omp/agent/` (overridable via `PI_CODING_AGENT_DIR`, per oh-my-pi `packages/utils/src/dirs.ts`). Before the dedicated adapter, OMP detection fell through to `pi` and storage rooted under another harness's directory (typically `~/.claude/`), per [issue #473](https://github.com/mksglu/context-mode/issues/473). The OMP adapter exists primarily to keep `~/.omp/context-mode/` isolated, not to provide hook integration — OMP, like Antigravity/Kiro/Zed, runs context-mode purely as an MCP server.
 
 **Hook Support:**
 - PreToolUse: --
@@ -633,20 +633,20 @@ The hook adapter exists only to satisfy the interface contract — every parser 
 
 The hook adapter exists only to satisfy the interface contract — every parser throws `Error("OMP does not support hooks")` and every formatter returns `undefined`.
 
-**Path Resolution:**
-- Agent root: `$OMP_PROCESSING_AGENT_DIR` if set, else `~/.omp/agent/`
-- Settings file: `<agent root>/mcp_config.json`
-- MCP registration: `mcpServers` object inside `mcp_config.json`
+**Path Resolution:** (verified against `src/adapters/omp/index.ts`)
+- Agent root: `$PI_CODING_AGENT_DIR` if set, else `~/.omp/agent/` (`getAgentDir`)
+- Settings file: `<agent root>/mcp.json` (`getSettingsPath` → `~/.omp/agent/mcp.json`)
+- MCP registration: `mcpServers` object inside `mcp.json`
 - Session dir: `~/.omp/context-mode/sessions/` (intentionally rooted at `~/.omp/`, not the agent dir, so multiple OMP instances on one host share an index without colliding session DBs)
-- Routing instructions: `PI.md` (Pi-compatible filename — OMP shares the Pi instruction surface)
+- Routing instructions: `SYSTEM.md` (OMP-native, per oh-my-pi README "Custom System Prompt"), with `AGENTS.md` also auto-discovered (`getInstructionFiles` → `["SYSTEM.md", "AGENTS.md"]`). NOT `PI.md` — no `PI.md` loader exists upstream.
 
 **Detection (priority order, listed BEFORE `pi` so OMP is never misclassified):**
-- `OMP_PROCESSING_AGENT_DIR` env var (high confidence)
+- `PI_CODING_AGENT_DIR` env var (high confidence)
 - `~/.omp/` directory presence (medium confidence)
 - `CONTEXT_MODE_PLATFORM=omp` override
 
 **Notes / Caveats:**
-- No hook adapter implies no automatic routing — the model must follow `PI.md` voluntarily (~60% compliance)
+- No hook adapter implies no automatic routing — the model must follow `SYSTEM.md` / `AGENTS.md` voluntarily (~60% compliance)
 - No marketplace or plugin registry for OMP; `getInstalledVersion()` reports `not installed` unless an `extensions/context-mode/package.json` exists under the agent dir
 - `validateHooks` always returns a single `warn` row reminding the user that OMP exposes only MCP integration
 - `configureAllHooks`, `setHookPermissions`, and `updatePluginRegistry` are intentional no-ops

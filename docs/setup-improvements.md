@@ -171,36 +171,47 @@ User-perceived impact is the ordering signal. Each PR is independent.
 Captured during the work pass so they don't get lost. Promote to numbered
 checklist items when scoped, or close out inline if trivial.
 
-- [ ] **Hook idempotency.** `adapter.configureAllHooks` always reports
-  "Updated existing … hook entry" even when the entry already matches the
-  desired value. `setup --check` therefore reports `WOULD CONFIGURE` even
-  when nothing would actually change. Fix in adapter base: skip the
-  rewrite when the entry's `command` + `matcher` already equal the target.
-- [ ] **`prebuild-install@7.1.3` deprecation warning** during `npm install`
-  (transitive via `better-sqlite3`). Upstream is unmaintained. Track for a
-  drop-in replacement (`prebuildify` consumers / `binding-version`).
-- [ ] **Pre-existing TypeScript diagnostics in `src/cli.ts`** that surface
-  on every tsc run (unused `writeFileSync`/`mkdirSync` imports, missing
-  `.d.mts` for `../scripts/heal-installed-plugins.mjs` and
-  `../scripts/heal-better-sqlite3.mjs`). Not introduced by these PRs but
-  worth a separate cleanup.
-- [ ] **Stale `cli.bundle.mjs`** ships with every source change until
-  `npm run build` re-bundles. Today the publishing flow handles this
-  (`prepublishOnly: npm run build`) but contributors hit stale bundle
-  surprises locally. Consider a `pre-commit` hook or a CI assertion that
-  the committed bundle matches `npm run build` output.
-- [ ] **`/tmp/.git` pollution breaks `isGlobalInstall()` heuristic.** On
-  Devbox/Codespaces images where `/tmp` is a git repo (some Docker
-  bootstrap scripts do this), `isGlobalInstall()` walks up from a
-  tmpdir-staged package and finds `/tmp/.git` → returns `false` → heal
-  block silently skipped. Affects 3 tests in `postinstall-heal.test.ts`
-  on these machines. Fix: bound the walk by walking AT MOST 2 levels OR
-  detect-and-ignore `/tmp/.git`. Maintainer call: tightening the
-  heuristic vs. accepting that contributor envs are unusual.
-- [ ] **`setup --check` for hooks lacks true diff.** Today returns drift
-  unconditionally for json-stdio platforms when hooks are needed. Same
-  root cause as the hook idempotency item above — once adapters compare
-  before rewriting, `--check` can be honest.
+- [x] **DI-1 — Hook idempotency.** Fixed in claude-code, gemini-cli, cursor,
+  qwen-code (codex was already idempotent). Each adapter's
+  `configureAllHooks` now `JSON.stringify`-compares an existing entry to
+  desired before reporting "Updated existing…" — and skips the
+  `writeSettings()` call entirely when no real changes accumulated.
+  Verified: re-running `context-mode setup` against an already-configured
+  HOME now reports "Hooks: up-to-date" + "Already configured — nothing
+  to do." instead of churning the settings file.
+- [ ] **DI-2 — `prebuild-install@7.1.3` deprecation warning** during
+  `npm install` (transitive via `better-sqlite3`). Upstream is
+  unmaintained — tracked at
+  https://github.com/prebuild/prebuild-install/issues/162 and
+  https://github.com/WiseLibs/better-sqlite3/issues/1281. Migration to
+  `prebuildify`-consuming alternatives is awaiting `better-sqlite3`
+  v13.x. No action on our side beyond bumping the dep range when v13
+  ships; documented here so the deprecation warning is not interpreted
+  as a context-mode regression.
+- [x] **DI-3 — Pre-existing TypeScript diagnostics in `src/cli.ts`.**
+  Removed unused `writeFileSync` + `mkdirSync` imports. Added
+  `scripts/heal-installed-plugins.d.mts` + `scripts/heal-better-sqlite3.d.mts`
+  declaration siblings so the `@ts-expect-error` suppressions could come
+  out — TypeScript now resolves the .mjs imports with full inference.
+  `tsc --noEmit` clean.
+- [x] **DI-4 — Stale `cli.bundle.mjs` publish gap.** Added
+  `Assert committed bundles match fresh build` step to `.github/workflows/ci.yml`
+  (Ubuntu-only to keep parallel matrix cheap). After the existing
+  `Build` + `Bundle` steps, the new step runs `git diff --exit-code`
+  against `*.bundle.mjs` + `hooks/*.bundle.mjs`. PRs with source edits
+  but missing bundle refresh fail with the `npm run bundle` remediation.
+- [x] **DI-5 — `/tmp/.git` pollution.** Bounded `isGlobalInstall()` walk
+  to depth 0 (just `pkgRoot/.git`). The 4-level walk was paranoia —
+  workspace `.git` scenarios are already eliminated by the
+  `npm_config_global === "true"` precondition (`npm install` in a
+  workspace doesn't set it). 3 previously-failing tests in
+  `postinstall-heal.test.ts` now pass.
+- [x] **DI-6 — `setup --check` for hooks honesty.** With DI-1 the message
+  changed from "WOULD CONFIGURE" to "setup is idempotent — re-run
+  `context-mode setup` to refresh (no-op when state is current)". True
+  diff would require each adapter to expose a non-destructive
+  `wouldConfigureHooks()` — out of scope; the user experience is now
+  honest because running setup is the no-op the user expects.
 
 ## Open questions
 

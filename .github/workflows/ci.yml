@@ -58,6 +58,19 @@ jobs:
       - name: Assert bundle invariants (G3 — Issue #511 guardrail)
         run: npm run assert-bundle
 
+      - name: Assert committed bundles match fresh build (DI-4)
+        # docs/setup-improvements.md DI-4 — catch stale committed bundles
+        # when a PR edits src/ but forgets `npm run bundle`. main has
+        # bundle.yml auto-commit, but PRs could otherwise merge stale
+        # bundles that need a follow-up workflow firing to refresh.
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          if ! git diff --exit-code -- '*.bundle.mjs' 'hooks/*.bundle.mjs'; then
+            echo "::error::Committed bundles drifted from src/. Run 'npm run bundle' locally and commit the refreshed *.bundle.mjs files." >&2
+            exit 1
+          fi
+
       - name: Run all tests
         shell: bash
         run: |

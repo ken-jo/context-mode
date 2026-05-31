@@ -168,6 +168,7 @@ function printHelp(): void {
     "setup flags:",
     "  --check                              Dry-run; exit 1 if changes would apply",
     "  --force                              Re-write even when up-to-date",
+    "  --uninstall                          Remove the context-mode entry (preserves other keys)",
     "  --scope user|project                 Target scope for project-aware platforms (cursor, vscode-copilot)",
     "",
     "Environment:",
@@ -184,6 +185,7 @@ if (args[0] === "--help" || args[0] === "-h" || args[0] === "help") {
   const platformArg = args[1] && !args[1].startsWith("--") ? args[1] : undefined;
   const check = args.includes("--check");
   const force = args.includes("--force");
+  const uninstall = args.includes("--uninstall");
   const scopeIdx = args.indexOf("--scope");
   const scopeArg = scopeIdx >= 0 && args[scopeIdx + 1] ? args[scopeIdx + 1] : undefined;
   const scope: "user" | "project" | undefined =
@@ -194,6 +196,7 @@ if (args[0] === "--help" || args[0] === "-h" || args[0] === "help") {
       platform: platformArg as never,
       check,
       force,
+      uninstall,
       scope,
     }).then((code) => process.exit(code)),
   ).catch((err: unknown) => {

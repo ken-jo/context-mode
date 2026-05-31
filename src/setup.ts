@@ -38,6 +38,8 @@ export interface SetupOptions {
   check?: boolean;
   /** Re-write even when current state already matches. */
   force?: boolean;
+  /** Remove context-mode keys instead of writing them — Item A4. */
+  uninstall?: boolean;
   /** For project-vs-user scoped platforms (cursor, vscode-copilot). */
   scope?: "user" | "project";
   /** Project root (defaults to process.cwd()). */
@@ -191,6 +193,47 @@ export function refreshMcpRegistration(
   });
 }
 
+/**
+ * Item A4 — remove the `context-mode` entry from the platform's MCP
+ * servers map. Preserves every sibling key the user added. Leaves the
+ * containing file in place even when the resulting map is empty — that
+ * matches `mcp.json` schema (`{ "mcpServers": {} }` is a valid empty
+ * config; deleting the file would silently destroy a user's empty-but-
+ * intentional state).
+ *
+ * Returns null when the platform has no separate mcp file to touch.
+ */
+function removeMcpRegistration(
+  platform: PlatformId,
+  opts: { check: boolean; scope: "user" | "project"; projectDir: string },
+): { changed: boolean; path?: string; desc: string } | null {
+  const handler = MCP_REGISTRATIONS[platform];
+  if (!handler) return null;
+  const path = handler.resolvePath({ scope: opts.scope, projectDir: opts.projectDir });
+  const container = handler.containerKey;
+  const sub = handler.serverKey ?? SERVER_KEY;
+
+  if (!existsSync(path)) {
+    return { changed: false, path, desc: `${handler.label}: nothing to remove (file not present)` };
+  }
+  const root = readJsonOrDefault<Record<string, unknown>>(path, {});
+  const servers = (root[container] && typeof root[container] === "object"
+    ? (root[container] as Record<string, unknown>)
+    : null);
+  if (!servers || !(sub in servers)) {
+    return { changed: false, path, desc: `${handler.label}: ${sub} not registered` };
+  }
+  if (opts.check) {
+    return { changed: true, path, desc: `${handler.label}: WOULD REMOVE ${sub}` };
+  }
+  delete servers[sub];
+  // Re-attach container (in case we replaced an undefined). Keep empty {}
+  // intentionally — see jsdoc above.
+  root[container] = servers;
+  writeJsonAtomic(path, root);
+  return { changed: true, path, desc: `${handler.label}: removed ${sub}` };
+}
+
 function applyMcpRegistration(
   platform: PlatformId,
   opts: { check: boolean; scope: "user" | "project"; projectDir: string },
@@ -322,10 +365,58 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
   // ── External / manual platforms ──
   const manual = MANUAL_HINTS[platform];
   if (manual) {
-    p.log.warn(color.yellow("Setup is managed externally for this platform."));
-    p.note(manual, platform);
+    if (opts.uninstall) {
+      p.log.warn(color.yellow("Uninstall is managed externally for this platform."));
+      p.note(manual.replace(/install/gi, "uninstall"), platform);
+    } else {
+      p.log.warn(color.yellow("Setup is managed externally for this platform."));
+      p.note(manual, platform);
+    }
     outcome = "manual";
     p.outro(color.dim("No files written. See docs/setup-improvements.md for automation roadmap."));
+    return 0;
+  }
+
+  // ── Uninstall path — Item A4 ──
+  if (opts.uninstall) {
+    try {
+      const r = removeMcpRegistration(platform, {
+        check: !!opts.check,
+        scope,
+        projectDir,
+      });
+      if (r === null) {
+        p.log.info(color.dim("MCP unregister: not applicable for this platform"));
+      } else if (r.changed) {
+        if (opts.check) driftSeen = true;
+        else outcome = "applied";
+        p.log.success(color.green(r.desc) + color.dim(` — ${r.path}`));
+        changes.push(`${r.desc} (${r.path})`);
+      } else {
+        p.log.info(color.dim(r.desc) + color.dim(` — ${r.path}`));
+        changes.push(r.desc);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      p.log.error(color.red(`MCP unregister: FAIL — ${msg}`));
+      warnings.push(`uninstall mcp: ${msg}`);
+    }
+    // Hooks removal is adapter-specific (each adapter writes its own keys);
+    // for the MVP we point the user at manual removal rather than risking
+    // damage to user-managed hook entries that happen to share our matcher
+    // pattern. Tracked as A4b follow-up.
+    p.log.info(
+      color.dim("Hook entries (if any) left in place — remove manually from your platform's hooks.json."),
+    );
+    if (opts.check && driftSeen) {
+      p.outro(color.yellow("Drift detected — re-run without --check to apply."));
+      return 1;
+    }
+    if (outcome === "applied") {
+      p.outro(color.green("Uninstall complete (MCP registration removed)."));
+    } else {
+      p.outro(color.green("Already uninstalled — nothing to do."));
+    }
     return 0;
   }
 

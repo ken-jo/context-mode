@@ -372,7 +372,7 @@ export abstract class CopilotBaseAdapter extends BaseAdapter implements HookAdap
       const script = HOOK_SCRIPTS[hookType];
       if (!script) continue;
 
-      hooks[hookType] = [
+      const desired = [
         {
           matcher: "",
           hooks: [
@@ -383,12 +383,22 @@ export abstract class CopilotBaseAdapter extends BaseAdapter implements HookAdap
           ],
         },
       ];
-      changes.push(`Configured ${hookType} hook`);
+      // Item DI-1 — only report (and write) when the entry actually differs
+      // from desired. Without this guard copilot-base rewrote the file and
+      // reported "Configured ..." on every run, so setup --check always saw
+      // drift and the idempotency contract was violated for vscode-copilot +
+      // jetbrains-copilot. (Second-pass workflow finding.)
+      if (JSON.stringify(hooks[hookType]) !== JSON.stringify(desired)) {
+        hooks[hookType] = desired;
+        changes.push(`Configured ${hookType} hook`);
+      }
     }
 
-    settings.hooks = hooks;
-    this.writeSettings(settings);
-    changes.push(`Wrote hook config to ${this.getSettingsPath()}`);
+    if (changes.length > 0) {
+      settings.hooks = hooks;
+      this.writeSettings(settings);
+      changes.push(`Wrote hook config to ${this.getSettingsPath()}`);
+    }
 
     return changes;
   }

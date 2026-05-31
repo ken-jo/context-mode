@@ -19,6 +19,7 @@ import { afterEach, describe, test, expect } from "vitest";
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -138,6 +139,53 @@ describe("setup↔doctor path agreement", () => {
     expect(new GeminiCLIAdapter().getSettingsPath()).toBe(
       expectedTargetPath("gemini-cli", real, process.cwd()),
     );
+  });
+});
+
+// ── setup↔doctor KEY agreement (second-pass finding) ──
+// The path-agreement tests above only proved the FILE matches — they missed
+// that gemini-cli's doctor read the wrong container KEY (it inspected
+// `extensions`, never the `mcpServers` setup writes), so doctor WARNed after
+// a clean setup. These tests write exactly what setup writes (the right
+// container key + server shape) to the adapter's read path under a patched
+// $HOME, then call checkPluginRegistration() and assert PASS — closing the
+// triangle at the KEY level, in-process (no spawn).
+describe("setup↔doctor KEY agreement (checkPluginRegistration passes on setup output)", () => {
+  const origHome = process.env.HOME;
+  const origUserProfile = process.env.USERPROFILE;
+  afterEach(() => {
+    if (origHome === undefined) delete process.env.HOME; else process.env.HOME = origHome;
+    if (origUserProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = origUserProfile;
+  });
+
+  function withHome(home: string) {
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+  }
+
+  test("gemini-cli: doctor PASSES when setup wrote mcpServers (not extensions)", async () => {
+    const home = mkTmp("ctx-key-gemini-");
+    withHome(home);
+    // Exactly what setup writes for gemini.
+    const p = resolve(home, ".gemini", "settings.json");
+    mkdirSync(resolve(home, ".gemini"), { recursive: true });
+    writeFileSync(p, JSON.stringify({ mcpServers: { "context-mode": { command: "context-mode" } } }));
+    const { GeminiCLIAdapter } = await import("../../src/adapters/gemini-cli/index.js");
+    const result = new GeminiCLIAdapter().checkPluginRegistration();
+    expect(result.status).toBe("pass");
+  });
+
+  test("vscode-copilot: doctor PASSES on the ~/.vscode/mcp.json that --scope user writes", async () => {
+    const home = mkTmp("ctx-key-vscode-");
+    withHome(home);
+    // No project .vscode/mcp.json in cwd; only the user-home file (the
+    // --scope user target). The home fallback must find it.
+    const p = resolve(home, ".vscode", "mcp.json");
+    mkdirSync(resolve(home, ".vscode"), { recursive: true });
+    writeFileSync(p, JSON.stringify({ servers: { "context-mode": { command: "context-mode" } } }));
+    const { VSCodeCopilotAdapter } = await import("../../src/adapters/vscode-copilot/index.js");
+    const result = new VSCodeCopilotAdapter().checkPluginRegistration();
+    expect(result.status).toBe("pass");
   });
 });
 

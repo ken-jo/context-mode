@@ -66,13 +66,37 @@ export interface SetupResult {
 
 /* ─────────── JSON I/O helpers ─────────── */
 
-function readJsonOrDefault<T>(path: string, fallback: T): T {
-  if (!existsSync(path)) return fallback;
+/**
+ * Read a JSON object for merging. Three cases:
+ *   - missing file        → { root: {} }                  (start fresh, safe)
+ *   - parses to an object → { root: <parsed> }            (merge into it)
+ *   - parse error / non-object → preserve the original by copying it to
+ *     `<path>.broken` (unless dryRun), return { root: {}, backedUp }.
+ *
+ * Second-pass workflow finding (HIGH): the old `readJsonOrDefault` returned
+ * `{}` on ANY parse error, and the subsequent atomic write then silently
+ * WIPED every sibling MCP server + comments. VS Code `mcp.json` is officially
+ * JSONC, so even a valid commented file tripped it. Backing up before reset
+ * (like the codex adapter) makes the data loss recoverable + visible.
+ */
+function readJsonForMerge(
+  path: string,
+  dryRun: boolean,
+): { root: Record<string, unknown>; backedUp?: string; parseError?: boolean } {
+  if (!existsSync(path)) return { root: {} };
+  let raw: string;
+  try { raw = readFileSync(path, "utf-8"); } catch { return { root: {} }; }
   try {
-    return JSON.parse(readFileSync(path, "utf-8")) as T;
-  } catch {
-    return fallback;
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return { root: parsed as Record<string, unknown> };
+    }
+  } catch { /* fall through to backup */ }
+  const backedUp = `${path}.broken`;
+  if (!dryRun) {
+    try { writeFileSync(backedUp, raw, "utf-8"); } catch { /* best effort */ }
   }
+  return { root: {}, backedUp, parseError: true };
 }
 
 function writeJsonAtomic(path: string, obj: unknown): void {
@@ -90,17 +114,19 @@ function writeJsonAtomic(path: string, obj: unknown): void {
 }
 
 /**
- * Set `obj[key] = desired` only when it differs. Returns true when a write
- * happened. Comparison is structural-by-JSON since templates are tiny and
- * deterministic.
+ * Shallow-merge `desired` over any existing object value so a user's extra
+ * fields on the context-mode server entry (e.g. `env` / `args`) survive a
+ * re-run. Non-object existing → desired wins. (Second-pass finding: the old
+ * wholesale replace dropped user-added fields on the context-mode entry.)
  */
-function upsertKey(obj: Record<string, unknown>, key: string, desired: unknown): boolean {
-  const cur = obj[key];
-  if (cur && typeof cur === "object" && JSON.stringify(cur) === JSON.stringify(desired)) {
-    return false;
+function mergedValue(existing: unknown, desired: unknown): unknown {
+  if (
+    existing && typeof existing === "object" && !Array.isArray(existing) &&
+    desired && typeof desired === "object" && !Array.isArray(desired)
+  ) {
+    return { ...(existing as Record<string, unknown>), ...(desired as Record<string, unknown>) };
   }
-  obj[key] = desired;
-  return true;
+  return desired;
 }
 
 /* ─────────── MCP server registration per platform ─────────── */
@@ -246,8 +272,17 @@ function removeMcpRegistration(
   if (!existsSync(path)) {
     return { changed: false, path, desc: `${handler.label}: nothing to remove (file not present)` };
   }
-  const root = readJsonOrDefault<Record<string, unknown>>(path, {});
-  const servers = (root[container] && typeof root[container] === "object"
+  const { root, parseError, backedUp } = readJsonForMerge(path, !!opts.check);
+  if (parseError) {
+    // Never overwrite an unparseable file on uninstall — we cannot know what
+    // to remove. Report + (outside dry-run) preserve a .broken copy.
+    return {
+      changed: false,
+      path,
+      desc: `${handler.label}: could not parse — left untouched${backedUp ? ` (backed up to ${backedUp})` : ""}; remove the context-mode entry manually`,
+    };
+  }
+  const servers = (root[container] && typeof root[container] === "object" && !Array.isArray(root[container])
     ? (root[container] as Record<string, unknown>)
     : null);
   if (!servers || !(sub in servers)) {
@@ -266,7 +301,7 @@ function removeMcpRegistration(
 
 function applyMcpRegistration(
   platform: PlatformId,
-  opts: { check: boolean; scope: "user" | "project"; projectDir: string },
+  opts: { check: boolean; scope: "user" | "project"; projectDir: string; force?: boolean },
 ): { changed: boolean; path?: string; desc: string } | null {
   const handler = MCP_REGISTRATIONS[platform];
   if (!handler) return null;
@@ -275,22 +310,28 @@ function applyMcpRegistration(
   const sub = handler.serverKey ?? SERVER_KEY;
   const desired = handler.desired ?? DESIRED_SERVER;
 
-  const root = readJsonOrDefault<Record<string, unknown>>(path, {});
-  const servers = (root[container] && typeof root[container] === "object"
+  const { root, backedUp } = readJsonForMerge(path, !!opts.check);
+  const backupNote = backedUp
+    ? (opts.check ? ` (would back up malformed file to ${backedUp})` : ` (backed up malformed file to ${backedUp})`)
+    : "";
+  const servers = (root[container] && typeof root[container] === "object" && !Array.isArray(root[container])
     ? (root[container] as Record<string, unknown>)
     : {}) as Record<string, unknown>;
 
-  const wouldChange = JSON.stringify(servers[sub]) !== JSON.stringify(desired);
-  if (!wouldChange) {
-    return { changed: false, path, desc: `${handler.label}: up-to-date` };
+  // Merge desired over any existing entry so user-added fields (env/args) on
+  // the context-mode server survive. `--force` re-writes even when equal.
+  const next = mergedValue(servers[sub], desired);
+  const wouldChange = JSON.stringify(servers[sub]) !== JSON.stringify(next);
+  if (!wouldChange && !opts.force) {
+    return { changed: false, path, desc: `${handler.label}: up-to-date${backupNote}` };
   }
   if (opts.check) {
-    return { changed: true, path, desc: `${handler.label}: WOULD WRITE` };
+    return { changed: true, path, desc: `${handler.label}: WOULD WRITE${backupNote}` };
   }
-  upsertKey(servers, sub, desired);
+  servers[sub] = next;
   root[container] = servers;
   writeJsonAtomic(path, root);
-  return { changed: true, path, desc: `${handler.label}: wrote ${sub}` };
+  return { changed: true, path, desc: `${handler.label}: wrote ${sub}${backupNote}` };
 }
 
 /* ─────────── External/manual platform messages ─────────── */
@@ -308,10 +349,47 @@ const MANUAL_HINTS: Partial<Record<PlatformId, string>> = {
     "Pi installs as an extension under the Pi agent directory. The PiAdapter resolves ~/.pi/extensions/context-mode/; note Pi's global extension scanner may use ~/.pi/agent/extensions/ depending on your Pi build — verify with `context-mode doctor`. (postinstall does not auto-install the Pi extension; see docs/setup-improvements.md DI-7.)",
   "omp":
     "OMP installs as a plugin via the npm package. The Pi runtime picks it up at ~/.omp/.",
-  "codex":
-    "Codex uses TOML. Add this to ~/.codex/config.toml:\n\n  [mcp_servers.context-mode]\n  command = \"context-mode\"\n\n(Automated TOML editing is on the roadmap — see docs/setup-improvements.md A1.)",
+  // NOTE: codex is intentionally NOT here. It is HOOK_CAPABLE with a real
+  // configureAllHooks (writes ~/.codex/hooks.json + enables the feature
+  // flag), so it must flow through the hooks path rather than short-circuit.
+  // Its MCP registration is TOML (no MCP_REGISTRATIONS entry); see
+  // POST_SETUP_NOTES["codex"] for the TOML snippet printed after hooks run.
   "jetbrains-copilot":
     "JetBrains GitHub Copilot adds MCP via the GitHub Copilot menu (NOT JetBrains' own 'AI Assistant'):\n    GitHub Copilot icon > Edit Settings > Model Context Protocol > Configure\n    (equivalently Settings > Tools > GitHub Copilot > Model Context Protocol (MCP) > Configure)\n  This opens an mcp.json with a top-level `servers` key:\n      { \"servers\": { \"context-mode\": { \"command\": \"context-mode\" } } }\n  Then drop `.github/hooks/context-mode.json` (see configs/jetbrains-copilot/hooks.json).",
+};
+
+/**
+ * Explicit uninstall instructions for the manual platforms. Replaces the
+ * earlier naive `manual.replace(/install/gi, "uninstall")` which produced
+ * nonexistent commands (`npm run uninstall:openclaw`) and "Add the server
+ * you're removing" nonsense. (Second-pass workflow finding.)
+ */
+const UNINSTALL_HINTS: Partial<Record<PlatformId, string>> = {
+  "claude-code":
+    "Run `/plugin uninstall context-mode@context-mode` inside Claude Code (or remove it from the marketplace UI).",
+  "opencode":
+    "Remove `\"context-mode\"` from the `plugin` array in ~/.config/opencode/opencode.json (or opencode.jsonc).",
+  "kilo":
+    "Remove `\"context-mode\"` from the plugins array in your KiloCode config.",
+  "openclaw":
+    "Remove the context-mode entry from `plugins.entries` (and `mcp.servers`) in your openclaw.json; there is no automated uninstall script.",
+  "pi":
+    "Delete the context-mode extension directory under your Pi agent dir (e.g. ~/.pi/extensions/context-mode/ or ~/.pi/agent/extensions/context-mode/).",
+  "omp":
+    "Remove the context-mode entry from `mcpServers` in ~/.omp/agent/mcp.json.",
+  "jetbrains-copilot":
+    "Remove the context-mode server from the GitHub Copilot MCP config (GitHub Copilot icon > Edit Settings > Model Context Protocol > Configure) and delete `.github/hooks/context-mode.json`.",
+};
+
+/**
+ * Informational notes printed AFTER the automated setup steps for platforms
+ * that need an additional manual step the auto-writer cannot do. codex needs
+ * its MCP server registered via TOML (no JSON MCP_REGISTRATIONS entry); its
+ * hooks ARE auto-configured via the hooks path.
+ */
+const POST_SETUP_NOTES: Partial<Record<PlatformId, string>> = {
+  "codex":
+    "Codex MCP registration uses TOML. Add this to ~/.codex/config.toml (hooks were configured automatically above):\n\n  [mcp_servers.context-mode]\n  command = \"context-mode\"\n\n(Automated TOML editing is on the roadmap.)",
 };
 
 /* ─────────── Hook configuration via adapter.configureAllHooks ─────────── */
@@ -340,16 +418,16 @@ async function applyHooksViaAdapter(
   if (!HOOK_CAPABLE.has(platform)) {
     return { changed: false, desc: "Hooks: not applicable for this platform" };
   }
-  // Items DI-1 + DI-6 — `configureAllHooks` is now idempotent across
-  // claude-code, gemini-cli, cursor, qwen-code, codex: it skips the write
-  // and returns an empty `changes` array when the on-disk entries already
-  // match desired. That means `context-mode setup` is safe to re-run any
-  // time; `--check` mode just suggests the user run setup outright since
-  // it's a no-op when state is good.
+  // Items DI-1 + DI-6 — `configureAllHooks` is idempotent across all
+  // hook-capable adapters (claude-code, gemini-cli, vscode-copilot, cursor,
+  // qwen-code, codex): it skips the write and returns an empty `changes`
+  // array when the on-disk entries already match desired. In --check mode we
+  // do NOT run it (it is destructive) and it does NOT contribute to the drift
+  // exit code (the caller ignores `changed` here); we just print an info line.
   if (check) {
     return {
-      changed: true,
-      desc: "Hooks: setup is idempotent — re-run `context-mode setup` to refresh (no-op when state is current)",
+      changed: false,
+      desc: "Hooks: idempotent — a real `context-mode setup` refreshes them (no-op when already current)",
     };
   }
   const adapter = await getAdapter(platform);
@@ -393,14 +471,18 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
   const changes: string[] = [];
   const warnings: string[] = [];
   let driftSeen = false;
+  let hadFailure = false;
   let outcome: SetupOutcome = "noop";
 
   // ── External / manual platforms ──
   const manual = MANUAL_HINTS[platform];
   if (manual) {
     if (opts.uninstall) {
+      // Use the explicit uninstall hint (NOT a naive install→uninstall
+      // regex, which produced nonexistent commands).
+      const uninstallHint = UNINSTALL_HINTS[platform] ?? manual;
       p.log.warn(color.yellow("Uninstall is managed externally for this platform."));
-      p.note(manual.replace(/install/gi, "uninstall"), platform);
+      p.note(uninstallHint, platform);
     } else {
       p.log.warn(color.yellow("Setup is managed externally for this platform."));
       p.note(manual, platform);
@@ -454,11 +536,17 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
   }
 
   // ── 1. Hooks (adapter.configureAllHooks) ──
+  // NOTE: in --check mode, hooks do NOT contribute to drift/exit-code. We
+  // cannot truly dry-run configureAllHooks (it is destructive) and the
+  // adapters are idempotent, so a phantom "hooks would change" must not make
+  // `--check` always exit 1. Only MCP registration (deterministic, real
+  // dry-run) drives the drift exit code. (Second-pass workflow finding.)
   try {
     const hookResult = await applyHooksViaAdapter(platform, opts.pluginRoot, !!opts.check);
-    if (hookResult.changed) {
-      if (opts.check) driftSeen = true;
-      else outcome = "applied";
+    if (opts.check) {
+      p.log.info(color.dim(hookResult.desc));
+    } else if (hookResult.changed) {
+      outcome = "applied";
       p.log.success(color.green(hookResult.desc));
     } else {
       p.log.info(color.dim(hookResult.desc));
@@ -468,6 +556,7 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
     const msg = err instanceof Error ? err.message : String(err);
     p.log.error(color.red(`Hooks: FAIL — ${msg}`));
     warnings.push(`hooks: ${msg}`);
+    hadFailure = true;
   }
 
   // ── 2. MCP server registration ──
@@ -476,6 +565,7 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
       check: !!opts.check,
       scope,
       projectDir,
+      force: opts.force,
     });
     if (mcpResult === null) {
       p.log.info(color.dim("MCP registration: handled by hook config (no separate file)"));
@@ -492,21 +582,38 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
     const msg = err instanceof Error ? err.message : String(err);
     p.log.error(color.red(`MCP registration: FAIL — ${msg}`));
     warnings.push(`mcp: ${msg}`);
+    hadFailure = true;
+  }
+
+  // ── 2b. Post-setup note (e.g. codex TOML MCP registration) ──
+  const postNote = POST_SETUP_NOTES[platform];
+  if (postNote && !opts.check) {
+    p.note(postNote, platform);
   }
 
   // ── 3. Outcome ──
+  const _result: SetupResult = { platform, outcome, changes, warnings };
+  void _result;
+
+  // Real write failure → non-zero exit even if some steps succeeded, so CI
+  // and scripts can detect a partial setup failure (was silently exit 0).
+  if (hadFailure) {
+    p.outro(color.red("Setup finished with errors — see the FAIL lines above."));
+    return 1;
+  }
   if (opts.check && driftSeen) {
     outcome = "drift";
     p.outro(color.yellow("Drift detected — re-run without --check to apply."));
     return 1;
   }
+  if (opts.check) {
+    p.outro(color.green("No MCP-registration drift. (Hooks are refreshed idempotently on a real run.)"));
+    return 0;
+  }
   if (outcome === "applied") {
     p.outro(color.green("Setup complete. Run `context-mode doctor` to verify."));
-  } else if (outcome === "noop") {
+  } else {
     p.outro(color.green("Already configured — nothing to do."));
   }
-  // Surface the result for tests / callers.
-  const _result: SetupResult = { platform, outcome, changes, warnings };
-  void _result;
   return 0;
 }

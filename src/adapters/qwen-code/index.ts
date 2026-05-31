@@ -17,8 +17,9 @@ import {
   readFileSync,
   writeFileSync,
   existsSync,
+  mkdirSync,
 } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname } from "node:path";
 import { homedir } from "node:os";
 
 import { ClaudeCodeBaseAdapter, type ClaudeCodeWireInput } from "../claude-code-base.js";
@@ -144,6 +145,10 @@ export class QwenCodeAdapter extends ClaudeCodeBaseAdapter implements HookAdapte
     // a `__require` shim that throws `Dynamic require of "node:fs" is not
     // supported` under Node ESM/Bun (this adapter is pulled into both
     // server.bundle.mjs and cli.bundle.mjs via adapter detect).
+    // Ensure the parent (~/.qwen/) exists — on a fresh machine the dir is
+    // absent and writeFileSync would throw ENOENT, failing `context-mode
+    // setup` (surfaced by the setup exit-code fix). (Second-pass finding.)
+    mkdirSync(dirname(this.getSettingsPath()), { recursive: true });
     writeFileSync(this.getSettingsPath(), JSON.stringify(settings, null, 2));
   }
 

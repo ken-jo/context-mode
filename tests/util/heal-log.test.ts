@@ -154,9 +154,11 @@ describe("heal-log", () => {
     expect(summary!.lastPhases["mcp-boot"]).toBe(2);
   });
 
-  it("ledger is capped — never grows beyond 500 lines (MAX_LINES)", () => {
+  it("ledger is capped — rotation keeps it within the hysteresis bound", () => {
     const dir = mkTmp();
-    for (let i = 0; i < 550; i++) {
+    // Write well past the rotation trigger (MAX_LINES * 1.2 = 600). Rotation
+    // fires at >600 and trims to 500, so the steady-state ceiling is 600.
+    for (let i = 0; i < 700; i++) {
       appendHealLog({
         claudeConfigDir: dir,
         entry: {
@@ -169,11 +171,9 @@ describe("heal-log", () => {
       });
     }
     const all = readHealLog({ claudeConfigDir: dir });
-    expect(all.length).toBeLessThanOrEqual(500);
-    // The oldest entries are trimmed — surviving entries should be the
-    // most recent ones, but since all entries are identical we just
-    // verify the cap was applied.
-    expect(all.length).toBeGreaterThan(0);
+    // Bounded (rotation happened) and not unbounded growth at 700.
+    expect(all.length).toBeLessThanOrEqual(600);
+    expect(all.length).toBeGreaterThanOrEqual(500);
   });
 
   it("malformed lines are skipped silently — readHealLog never throws", () => {

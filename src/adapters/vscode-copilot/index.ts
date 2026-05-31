@@ -210,39 +210,46 @@ export class VSCodeCopilotAdapter extends CopilotBaseAdapter {
   }
 
   checkPluginRegistration(): DiagnosticResult {
-    // Check MCP config in .vscode/mcp.json
-    try {
-      const mcpConfigPath = resolve(".vscode", "mcp.json");
-      const raw = readFileSync(mcpConfigPath, "utf-8");
-      const config = JSON.parse(raw) as Record<string, unknown>;
-
-      const servers = config.servers as Record<string, unknown> | undefined;
-      if (servers) {
-        const hasPlugin = Object.keys(servers).some((k) =>
-          k.includes("context-mode"),
-        );
-        if (hasPlugin) {
-          return {
-            check: "MCP registration",
-            status: "pass",
-            message: "context-mode found in .vscode/mcp.json",
-          };
-        }
+    // Check both the project file (.vscode/mcp.json, the default scope) AND
+    // the user-home file (~/.vscode/mcp.json) that `setup --scope user`
+    // writes — mirrors the CursorAdapter's dual-path check so doctor agrees
+    // with setup regardless of scope. (Second-pass workflow finding.)
+    const candidates = [
+      resolve(".vscode", "mcp.json"),
+      join(homedir(), ".vscode", "mcp.json"),
+    ];
+    let anyReadable = false;
+    for (const mcpConfigPath of candidates) {
+      let config: Record<string, unknown>;
+      try {
+        config = JSON.parse(readFileSync(mcpConfigPath, "utf-8")) as Record<string, unknown>;
+        anyReadable = true;
+      } catch {
+        continue;
       }
+      const servers = config.servers as Record<string, unknown> | undefined;
+      if (servers && Object.keys(servers).some((k) => k.includes("context-mode"))) {
+        return {
+          check: "MCP registration",
+          status: "pass",
+          message: `context-mode found in ${mcpConfigPath}`,
+        };
+      }
+    }
 
+    if (anyReadable) {
       return {
         check: "MCP registration",
         status: "fail",
-        message: "context-mode not found in .vscode/mcp.json",
-        fix: "Add context-mode server to .vscode/mcp.json",
-      };
-    } catch {
-      return {
-        check: "MCP registration",
-        status: "warn",
-        message: "Could not read .vscode/mcp.json",
+        message: "context-mode not found in .vscode/mcp.json (project or ~/.vscode/mcp.json)",
+        fix: "Run `context-mode setup` (add --scope user to target ~/.vscode/mcp.json)",
       };
     }
+    return {
+      check: "MCP registration",
+      status: "warn",
+      message: "Could not read .vscode/mcp.json (project or user) — run `context-mode setup`",
+    };
   }
 
   getInstalledVersion(): string {

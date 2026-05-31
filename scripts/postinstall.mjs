@@ -20,6 +20,23 @@ import { runRuntimePrecheck } from "./lib/runtime-precheck.mjs";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = resolve(__dirname, "..");
 
+// Resolve the Claude Code config dir, honoring $CLAUDE_CONFIG_DIR (incl.
+// leading ~). Mirror of start.mjs::resolveClaudeConfigDir — inlined because
+// postinstall ships as raw JS and cannot import the TS util. Without this,
+// postinstall hardcoded ~/.claude while start.mjs + doctor honored the env
+// var, so heal entries split-brained and a custom-config-dir user got an
+// unwanted ~/.claude/ created (Issue #577 class). (Second-pass finding.)
+function resolveClaudeConfigDir() {
+  const envVal = process.env.CLAUDE_CONFIG_DIR;
+  if (envVal && envVal.trim() !== "") {
+    if (envVal.startsWith("~")) {
+      return resolve(homedir(), envVal.replace(/^~[/\\]?/, ""));
+    }
+    return resolve(envVal);
+  }
+  return resolve(homedir(), ".claude");
+}
+
 // ── -2. Issue #564 — Linux SIGSEGV class hard-fail (v1.0.132) ────────
 // On Linux + Node < 22.5 + no Bun, better-sqlite3's native addon is
 // vulnerable to V8 calling `madvise(MADV_DONTNEED)` on memory ranges
@@ -97,7 +114,7 @@ if (isGlobalInstall()) {
   try {
     const report = runRuntimeHealSuite({
       pluginKey: "context-mode@context-mode",
-      claudeConfigDir: resolve(homedir(), ".claude"),
+      claudeConfigDir: resolveClaudeConfigDir(),
       phase: "postinstall",
     });
     if (report.healed.length > 0) {

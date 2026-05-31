@@ -71,6 +71,7 @@ import {
   HOOK_TYPES as GEMINI_HOOK_NAMES,
   HOOK_SCRIPTS as GEMINI_HOOK_SCRIPTS,
   buildHookCommand as buildGeminiHookCommand,
+  isContextModeHook as isGeminiContextModeHook,
   EXTERNAL_MCP_MATCHER_PATTERN,
   type HookType as GeminiHookType,
 } from "./hooks.js";
@@ -393,7 +394,21 @@ export class GeminiCLIAdapter extends BaseAdapter implements HookAdapter {
       };
     }
 
-    // Check in extensions or settings for context-mode
+    // `context-mode setup` (and `upgrade`) register the MCP server under
+    // `mcpServers` in ~/.gemini/settings.json — check that FIRST so doctor
+    // agrees with what setup writes (otherwise setup succeeds but doctor
+    // WARNs "not found in extensions"). The `extensions` check below covers
+    // the Gemini extension-marketplace install path.
+    const mcpServers = settings.mcpServers as Record<string, unknown> | undefined;
+    if (mcpServers && Object.keys(mcpServers).some((k) => k.includes("context-mode"))) {
+      return {
+        check: "Plugin registration",
+        status: "pass",
+        message: "context-mode found in mcpServers (~/.gemini/settings.json)",
+      };
+    }
+
+    // Check extensions (Gemini extension-marketplace install path).
     const extensions = settings.extensions as
       | Record<string, unknown>
       | Array<unknown>
@@ -419,7 +434,7 @@ export class GeminiCLIAdapter extends BaseAdapter implements HookAdapter {
     return {
       check: "Plugin registration",
       status: "warn",
-      message: "context-mode not found in extensions (might be using standalone MCP mode)",
+      message: "context-mode not found in mcpServers or extensions — run `context-mode setup`",
     };
   }
 
@@ -467,10 +482,19 @@ export class GeminiCLIAdapter extends BaseAdapter implements HookAdapter {
         | Array<Record<string, unknown>>
         | undefined;
       if (existing && Array.isArray(existing)) {
-        const idx = existing.findIndex((e) => {
-          const entryHooks = e.hooks as Array<{ command?: string }> | undefined;
-          return entryHooks?.some((h) => h.command?.includes("context-mode"));
-        });
+        // Use isContextModeHook (matches BOTH the path form
+        // `node "<root>/hooks/x.mjs"` AND the CLI-dispatcher form
+        // `context-mode hook gemini-cli x`). The previous naive
+        // `includes("context-mode")` predicate never matched the path
+        // form, so configureAllHooks appended a duplicate on every run
+        // in the normal plugin-install mode and the DI-1 write-skip guard
+        // was dead code there. (Second-pass workflow finding.)
+        const idx = existing.findIndex((e) =>
+          isGeminiContextModeHook(
+            e as { hooks?: Array<{ command?: string }> },
+            config.name as GeminiHookType,
+          ),
+        );
         if (idx >= 0) {
           // Item DI-1 — only report "Updated existing..." when the entry
           // actually differs from desired. Without this guard, every

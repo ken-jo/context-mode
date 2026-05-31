@@ -139,16 +139,27 @@ export function runRuntimeHealSuite({ pluginKey, claudeConfigDir, phase }) {
   // Item B4 — append one JSON line to ${claudeConfigDir}/context-mode/heal.log.
   // Best-effort: never throws, never blocks. doctor reads the same file to
   // surface "HEAL ran N times in the last 7 days, healed X of them".
-  appendHealLog({
-    claudeConfigDir,
-    entry: {
-      phase,
-      healed: report.healed,
-      skipped: report.skipped,
-      errors: report.errors,
-      sweptCount: report.swept.length,
-    },
-  });
+  //
+  // Only log when something INTERESTING happened (a heal, a sweep, or an
+  // error). Logging pure no-ops would make a fresh `npm install -g
+  // context-mode` on a machine with no Claude Code registry create
+  // ${claudeConfigDir}/context-mode/heal.log out of nothing (re-opening the
+  // unwanted-~/.claude class of Issue #577 for the postinstall path) and
+  // would bloat the ledger with skip-only rows. (Second-pass finding.)
+  const didSomething =
+    report.healed.length > 0 || report.swept.length > 0 || report.errors.length > 0;
+  if (didSomething) {
+    appendHealLog({
+      claudeConfigDir,
+      entry: {
+        phase,
+        healed: report.healed,
+        skipped: report.skipped,
+        errors: report.errors,
+        sweptCount: report.swept.length,
+      },
+    });
+  }
 
   return report;
 }

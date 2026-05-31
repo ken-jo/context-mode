@@ -52,12 +52,17 @@ export function appendHealLog({ claudeConfigDir, entry }) {
   try {
     mkdirSync(dirname(path), { recursive: true });
     appendFileSync(path, line, "utf-8");
-    // Rotate when the file outgrows MAX_LINES — read, tail-slice, rewrite.
-    // Cheaper than a per-write line count: only check on lines that end in
-    // `\n` which they all do, and only rewrite when we exceed the cap.
+    // The append itself is atomic (O_APPEND), so concurrent postinstall +
+    // MCP-boot writers never corrupt a line. Rotation is a non-atomic
+    // read-trim-rewrite, so we run it with HYSTERESIS — only when the file
+    // exceeds MAX_LINES * 1.2, trimming back to MAX_LINES. This makes
+    // rotation rare (every ~100 writes, not every write past the cap),
+    // shrinking the concurrent-rotation race window ~5x. Worst case under a
+    // simultaneous rotation is the loss of a single best-effort telemetry
+    // line at the boundary — never corruption. (Second-pass finding.)
     const text = readFileSync(path, "utf-8");
     const lines = text.split("\n").filter((l) => l.length > 0);
-    if (lines.length > MAX_LINES) {
+    if (lines.length > Math.floor(MAX_LINES * 1.2)) {
       const trimmed = lines.slice(-MAX_LINES).join("\n") + "\n";
       writeFileSync(path, trimmed, "utf-8");
     }

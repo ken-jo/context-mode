@@ -213,6 +213,89 @@ checklist items when scoped, or close out inline if trivial.
   `wouldConfigureHooks()` — out of scope; the user experience is now
   honest because running setup is the no-op the user expects.
 
+## Workflow verification findings (official-source cross-check)
+
+A 62-agent dynamic workflow cross-checked every platform's `setup.ts`
+MCP-registration + `registry.ts` env-var claims against (a) the in-repo
+adapter (the file `doctor` reads), (b) `configs/<platform>/` templates,
+(c) `docs/platform-support.md`, and (d) each agent CLI's **official GitHub
+source / docs** (web). Each discrepancy was adversarially re-verified to
+kill doc-misread false positives. 8 issues survived.
+
+### Fixed (bugs in the setup feature authored this session)
+
+- [x] **WV-1 — antigravity path/filename/scope (HIGH).** `setup` wrote
+  `<project>/.antigravity/mcp.json` but `AntigravityAdapter.getSettingsPath`
+  (= the path `doctor` reads) is `~/.gemini/antigravity/mcp_config.json`
+  (home-rooted, filename `mcp_config.json`). Three-axis divergence → setup
+  succeeded but doctor reported WARN and Antigravity never loaded the server.
+  Fixed `MCP_REGISTRATIONS.antigravity.resolvePath` → home-rooted
+  `mcp_config.json`, removed from project-scope default. Matches adapter +
+  `configs/antigravity/mcp_config.json` + `antigravity.google/docs/mcp`.
+- [x] **WV-2 — kiro project-vs-user split (HIGH).** `setup` wrote project
+  `.kiro/settings/mcp.json` (and ignored `--scope`), doctor reads
+  `~/.kiro/settings/mcp.json`. Fixed: `resolvePath` now branches on scope
+  (like cursor/vscode-copilot), default scope is **user** so it writes the
+  file doctor reads; `--scope project` still works. Both paths are valid per
+  `kiro.dev/docs/mcp/configuration`.
+- [x] **WV-3 — jetbrains-copilot wrong settings node (HIGH).** The manual
+  hint said "Settings > Tools > **AI Assistant**" — that is JetBrains' own
+  native AI product, not the GitHub Copilot plugin; the GitHub Copilot MCP
+  server cannot be registered there. The adapter's own doctor fix and the
+  official `github/github-mcp-server` docs say **GitHub Copilot icon > Edit
+  Settings > Model Context Protocol > Configure** (mcp.json, top-level
+  `servers`). Fixed the hint text.
+- [x] **WV-4 — opencode hint filename (MEDIUM).** Hint said add the plugin
+  to `~/.config/opencode/config.json`, but the adapter only reads
+  `opencode.json`/`opencode.jsonc`. Fixed hint → `opencode.json`.
+- [x] **WV-5 — pi false postinstall claim (MEDIUM).** Hint claimed "npm
+  postinstall normally handles this" — `postinstall.mjs` has no Pi handling.
+  Softened the hint and cross-referenced DI-7.
+- [x] **Regression guards:** `tests/setup/setup.test.ts` gains a
+  "setup↔doctor path agreement" describe that asserts the adapter's READ
+  path equals setup's DEFAULT WRITE path for antigravity, kiro, gemini-cli;
+  the matrix tests' `expectedTargetPath` was retargeted to the adapter paths.
+
+### Pre-existing maintainer-code issues (flagged, not blind-edited)
+
+- [ ] **DI-7 — pi global extension dir missing `agent/` segment (HIGH,
+  pre-existing).** `PiAdapter` (`src/adapters/pi/index.ts:166-172,199-205`),
+  `scripts/version-sync.mjs:31`, and the committed `.pi/extensions/` all use
+  `~/.pi/extensions/context-mode/`, but per `earendil-works/pi`
+  `docs/extensions.md` the GLOBAL auto-discovery dir is `~/.pi/agent/extensions/`
+  (project scope `.pi/extensions/` IS correct). The sibling `OMPAdapter`
+  already uses the `agent/` segment, so the convention is known. NOT edited
+  here: the `pi` / `oh-my-pi` / `@mariozechner/pi` fork lineage is ambiguous
+  in this repo (comments reference can1357/oh-my-pi while the official dir
+  comes from earendil-works/pi) — the maintainer should confirm the target
+  fork before changing the adapter + version-sync + committed dir together.
+- [ ] **DI-8 — contested / phantom env-var detection signals (MEDIUM,
+  pre-existing).** The workflow flagged `OPENCODE_PROJECT_DIR` (opencode),
+  `ZED_SESSION_ID` (zed), and `PI_CONFIG_DIR`/`PI_SESSION_FILE`/`PI_COMPILED`
+  (pi) as not provably emitted by those runtimes (zero source hits / refs/
+  evidence dir absent). These pre-date this session's work (D2 only *moved*
+  them) and the maintainer's comments treat some as load-bearing for the
+  `resolveProjectDir` cascade — blind deletion risks a detection regression.
+  Recommend the maintainer re-source each against current upstream and demote
+  to `detect:false` or remove. Benign at runtime today (`|| process.cwd()`
+  fallbacks).
+- [ ] **DI-9 — doc accuracy nits (LOW, docs-only).** `docs/platform-support.md`:
+  line 303 says antigravity has no env vars (contradicts `ANTIGRAVITY_CLI_ALIAS`);
+  the OMP section (≈616-652) lists a fictional `OMP_PROCESSING_AGENT_DIR`,
+  filename `mcp_config.json` (should be `mcp.json`), and `PI.md` (should be
+  `SYSTEM.md`/`AGENTS.md`); the kiro `clientInfo.name="Kiro CLI"` detection
+  is cited to kirodotdev/Kiro #5205 which is actually an LSP null-clientInfo
+  bug, not proof of an MCP-emitted name (kiro detection still works via the
+  `~/.kiro` config-dir tier). Runtime is correct in all three; docs lag.
+
+### Platforms verified CLEAN
+
+gemini-cli, vscode-copilot (key `servers`, correctly not `mcpServers`),
+cursor, qwen-code, codex (TOML hint correct; omitting `[features].hooks` is
+right for MCP-only), kilo, openclaw, omp (runtime correct; only stale docs).
+All received both internal-consistency AND official-web verification
+(`webAvailable: true` for all 14).
+
 ## Open questions
 
 - [ ] `setup` should it accept `--scope user|project|local` like `claude mcp add`?

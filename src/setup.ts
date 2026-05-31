@@ -149,13 +149,31 @@ const MCP_REGISTRATIONS: Partial<Record<PlatformId, McpRegHandler>> = {
     containerKey: "mcpServers",
   },
   "kiro": {
-    label: "Kiro mcp.json mcpServers",
-    resolvePath: ({ projectDir }) => resolve(projectDir, ".kiro", "settings", "mcp.json"),
+    label: "Kiro settings/mcp.json mcpServers",
+    // Kiro supports both ~/.kiro/settings/mcp.json (user) and
+    // <project>/.kiro/settings/mcp.json (project). The KiroAdapter's
+    // getSettingsPath() — the file `doctor` reads — is the USER-HOME path,
+    // so user scope is the default (see scope defaults below). Honor an
+    // explicit --scope project. Verified against the adapter + Kiro MCP docs
+    // (kiro.dev/docs/mcp/configuration). Fixes the setup↔doctor split where
+    // setup wrote the project file the adapter never reads.
+    resolvePath: ({ scope, projectDir }) =>
+      scope === "user"
+        ? resolve(homedir(), ".kiro", "settings", "mcp.json")
+        : resolve(projectDir, ".kiro", "settings", "mcp.json"),
     containerKey: "mcpServers",
   },
   "antigravity": {
-    label: "Antigravity mcp.json mcpServers",
-    resolvePath: ({ projectDir }) => resolve(projectDir, ".antigravity", "mcp.json"),
+    label: "Antigravity mcp_config.json mcpServers",
+    // Antigravity nests its MCP config under ~/.gemini/antigravity/ and the
+    // file is literally `mcp_config.json` (NOT mcp.json). The AntigravityAdapter
+    // getConfigDir() is home-rooted and ignores projectDir, and
+    // checkPluginRegistration() — the file `doctor` reads — reads exactly this
+    // path. So setup must write the same home-rooted file; scope is ignored.
+    // Verified against src/adapters/antigravity/index.ts + docs/platform-support.md
+    // + antigravity.google/docs/mcp. Fixes the 3-axis setup↔doctor divergence
+    // (wrong dir .antigravity vs .gemini/antigravity, wrong filename, wrong scope).
+    resolvePath: () => resolve(homedir(), ".gemini", "antigravity", "mcp_config.json"),
     containerKey: "mcpServers",
   },
   "zed": {
@@ -186,11 +204,23 @@ export function refreshMcpRegistration(
 ): { changed: boolean; path?: string; desc: string } | null {
   return applyMcpRegistration(platform, {
     check: opts.check ?? false,
-    scope: opts.scope ?? (platform === "vscode-copilot" || platform === "cursor" || platform === "kiro" || platform === "antigravity"
-      ? "project"
-      : "user"),
+    scope: opts.scope ?? defaultScopeFor(platform),
     projectDir: opts.projectDir ?? process.cwd(),
   });
+}
+
+/**
+ * Default scope per platform. Only vscode-copilot and cursor are project-first
+ * — their canonical MCP file is `<project>/.vscode/mcp.json` /
+ * `<project>/.cursor/mcp.json`. Every other platform (including kiro and
+ * antigravity) is user-home rooted because that is the file the platform's
+ * adapter `checkPluginRegistration()` (i.e. `doctor`) reads; defaulting them
+ * to project scope would write a file doctor never inspects.
+ */
+function defaultScopeFor(platform: PlatformId): "user" | "project" {
+  return platform === "vscode-copilot" || platform === "cursor"
+    ? "project"
+    : "user";
 }
 
 /**
@@ -269,19 +299,19 @@ const MANUAL_HINTS: Partial<Record<PlatformId, string>> = {
   "claude-code":
     "Installed via Claude Code marketplace. Run `/plugin install context-mode@context-mode` inside Claude Code.",
   "opencode":
-    "OpenCode auto-installs the plugin from npm into ~/.cache/opencode/packages/... Add `\"context-mode\"` to plugins in ~/.config/opencode/config.json.",
+    "OpenCode auto-installs the plugin from npm into ~/.cache/opencode/packages/... Add `\"context-mode\"` to the `plugin` array in ~/.config/opencode/opencode.json (or opencode.jsonc) — this is the file `context-mode doctor` reads. config.json is also loaded by OpenCode but doctor inspects opencode.json.",
   "kilo":
     "KiloCode auto-installs from npm into its package cache. Add `\"context-mode\"` to plugins in your KiloCode config.",
   "openclaw":
     "OpenClaw uses a native gateway plugin. Run `npm run install:openclaw` from the plugin root.",
   "pi":
-    "Pi installs as an extension at ~/.pi/extensions/context-mode/. The npm postinstall step normally handles this when installed globally.",
+    "Pi installs as an extension under the Pi agent directory. The PiAdapter resolves ~/.pi/extensions/context-mode/; note Pi's global extension scanner may use ~/.pi/agent/extensions/ depending on your Pi build — verify with `context-mode doctor`. (postinstall does not auto-install the Pi extension; see docs/setup-improvements.md DI-7.)",
   "omp":
     "OMP installs as a plugin via the npm package. The Pi runtime picks it up at ~/.omp/.",
   "codex":
     "Codex uses TOML. Add this to ~/.codex/config.toml:\n\n  [mcp_servers.context-mode]\n  command = \"context-mode\"\n\n(Automated TOML editing is on the roadmap — see docs/setup-improvements.md A1.)",
   "jetbrains-copilot":
-    "JetBrains adds MCP via Settings UI:\n    Settings > Tools > AI Assistant > Model Context Protocol > Add Server\n      Name:    context-mode\n      Command: context-mode\n  Then drop `.github/hooks/context-mode.json` (see configs/jetbrains-copilot/hooks.json).",
+    "JetBrains GitHub Copilot adds MCP via the GitHub Copilot menu (NOT JetBrains' own 'AI Assistant'):\n    GitHub Copilot icon > Edit Settings > Model Context Protocol > Configure\n    (equivalently Settings > Tools > GitHub Copilot > Model Context Protocol (MCP) > Configure)\n  This opens an mcp.json with a top-level `servers` key:\n      { \"servers\": { \"context-mode\": { \"command\": \"context-mode\" } } }\n  Then drop `.github/hooks/context-mode.json` (see configs/jetbrains-copilot/hooks.json).",
 };
 
 /* ─────────── Hook configuration via adapter.configureAllHooks ─────────── */
@@ -356,11 +386,9 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
   }
 
   // Default scope: vscode-copilot and cursor are project-first because their
-  // canonical install path is per-project. Others are user-scoped.
-  const scope: "user" | "project" =
-    opts.scope ?? (platform === "vscode-copilot" || platform === "cursor" || platform === "kiro" || platform === "antigravity"
-      ? "project"
-      : "user");
+  // canonical install path is per-project. Others are user-scoped — see
+  // defaultScopeFor() (single source of truth shared with refreshMcpRegistration).
+  const scope: "user" | "project" = opts.scope ?? defaultScopeFor(platform);
 
   const changes: string[] = [];
   const warnings: string[] = [];

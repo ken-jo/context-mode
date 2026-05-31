@@ -76,23 +76,70 @@ function runSetup(opts: {
   return { stdout: r.stdout ?? "", stderr: r.stderr ?? "", status: r.status };
 }
 
-/** Standard per-platform target path resolver — must mirror setup.ts. */
+/**
+ * Standard per-platform target path resolver — MUST mirror setup.ts
+ * MCP_REGISTRATIONS at the DEFAULT scope. kiro + antigravity were corrected
+ * to user-home defaults so setup writes the same file the adapter's
+ * checkPluginRegistration() (doctor) reads — verified by the official-source
+ * workflow (see docs/setup-improvements.md "Workflow verification findings").
+ *   - antigravity: ~/.gemini/antigravity/mcp_config.json (home; mcp_config.json,
+ *     NOT mcp.json) — matches AntigravityAdapter.getConfigDir.
+ *   - kiro: ~/.kiro/settings/mcp.json (home default) — matches
+ *     KiroAdapter.getSettingsPath.
+ */
 function expectedTargetPath(platform: string, home: string, cwd: string): string {
   switch (platform) {
     case "gemini-cli":   return resolve(home, ".gemini", "settings.json");
     case "vscode-copilot": return resolve(cwd, ".vscode", "mcp.json");
     case "cursor":       return resolve(cwd, ".cursor", "mcp.json");
     case "qwen-code":    return resolve(home, ".qwen", "settings.json");
-    case "kiro":         return resolve(cwd, ".kiro", "settings", "mcp.json");
-    case "antigravity":  return resolve(cwd, ".antigravity", "mcp.json");
+    case "kiro":         return resolve(home, ".kiro", "settings", "mcp.json");
+    case "antigravity":  return resolve(home, ".gemini", "antigravity", "mcp_config.json");
     case "zed":          return resolve(home, ".config", "zed", "settings.json");
     default: throw new Error(`unknown platform ${platform}`);
   }
 }
 
-const HOME_SCOPED = ["gemini-cli", "qwen-code", "zed"] as const;
-const PROJECT_SCOPED = ["vscode-copilot", "cursor", "kiro", "antigravity"] as const;
+// kiro + antigravity moved to HOME_SCOPED — their default scope is now user
+// (the file doctor reads). vscode-copilot + cursor remain genuinely
+// project-canonical.
+const HOME_SCOPED = ["gemini-cli", "qwen-code", "zed", "kiro", "antigravity"] as const;
+const PROJECT_SCOPED = ["vscode-copilot", "cursor"] as const;
 const ALL_JSON_STDIO = [...HOME_SCOPED, ...PROJECT_SCOPED];
+
+// ── setup↔doctor path agreement (regression guard for the workflow finding) ──
+// The official-source verification workflow found setup.ts wrote MCP files
+// that the platform adapter's checkPluginRegistration() (doctor) never reads
+// — antigravity (.antigravity/mcp.json vs ~/.gemini/antigravity/mcp_config.json)
+// and kiro (project vs ~/.kiro/settings/mcp.json). This asserts the adapter's
+// READ path equals the test's mirror of setup's DEFAULT WRITE path; combined
+// with the matrix test below (which proves setup actually writes to
+// expectedTargetPath), the chain proves setup writes where doctor reads.
+describe("setup↔doctor path agreement", () => {
+  test("antigravity: adapter read path == setup default write path", async () => {
+    const { AntigravityAdapter } = await import("../../src/adapters/antigravity/index.js");
+    const real = (await import("node:os")).homedir();
+    expect(new AntigravityAdapter().getSettingsPath()).toBe(
+      expectedTargetPath("antigravity", real, process.cwd()),
+    );
+  });
+
+  test("kiro: adapter read path == setup default (user) write path", async () => {
+    const { KiroAdapter } = await import("../../src/adapters/kiro/index.js");
+    const real = (await import("node:os")).homedir();
+    expect(new KiroAdapter().getSettingsPath()).toBe(
+      expectedTargetPath("kiro", real, process.cwd()),
+    );
+  });
+
+  test("gemini-cli: adapter settings path == setup write path", async () => {
+    const { GeminiCLIAdapter } = await import("../../src/adapters/gemini-cli/index.js");
+    const real = (await import("node:os")).homedir();
+    expect(new GeminiCLIAdapter().getSettingsPath()).toBe(
+      expectedTargetPath("gemini-cli", real, process.cwd()),
+    );
+  });
+});
 
 describe("setup matrix — write per platform", () => {
   for (const platform of ALL_JSON_STDIO) {

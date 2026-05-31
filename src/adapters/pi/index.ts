@@ -222,7 +222,9 @@ export class PiAdapter extends BaseAdapter implements HookAdapter {
   // ── Upgrade ────────────────────────────────────────────
   // Pi does NOT use settings.json hook entries. The extension is the
   // integration point — there is nothing for the harness to register
-  // beyond copying the extension into ~/.pi/extensions/context-mode/.
+  // beyond copying the extension into the Pi auto-discovery dir: global
+  // ~/.pi/agent/extensions/context-mode/ (the path doctor checks) or
+  // project .pi/extensions/context-mode/.
 
   configureAllHooks(_pluginRoot: string): string[] {
     return [];
@@ -234,7 +236,9 @@ export class PiAdapter extends BaseAdapter implements HookAdapter {
 
   updatePluginRegistry(_pluginRoot: string, _version: string): void {
     // Pi extension version is managed by scripts/version-sync.mjs writing
-    // to ~/.pi/extensions/context-mode/package.json. No-op here.
+    // to the repo's committed project-scoped source
+    // .pi/extensions/context-mode/package.json (repo-relative, not the
+    // installed global ~/.pi/agent/extensions/ copy). No-op here.
   }
 
   getRoutingInstructions(): string {

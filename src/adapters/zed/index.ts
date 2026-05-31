@@ -23,6 +23,23 @@ import { homedir } from "node:os";
 import { BaseAdapter } from "../base.js";
 import { parseJsonc } from "../../util/jsonc.js";
 
+/**
+ * Resolve Zed's settings.json — platform-aware. Zed stores user config under
+ * the OS-native location, NOT a uniform ~/.config:
+ *   - Windows: %LOCALAPPDATA%\Zed\settings.json  (Local, NOT Roaming/%APPDATA%)
+ *   - Linux/macOS: ~/.config/zed/settings.json
+ * Verified against zed.dev docs + zed-industries/zed. Single source of truth
+ * shared by ZedAdapter.getSettingsPath() and setup.ts MCP_REGISTRATIONS.zed so
+ * setup writes exactly where doctor (and Zed) read. (Loop-3 Windows fix.)
+ */
+export function zedSettingsPath(): string {
+  if (process.platform === "win32") {
+    const localAppData = process.env.LOCALAPPDATA || resolve(homedir(), "AppData", "Local");
+    return resolve(localAppData, "Zed", "settings.json");
+  }
+  return resolve(homedir(), ".config", "zed", "settings.json");
+}
+
 import type {
   HookAdapter,
   HookParadigm,
@@ -103,7 +120,7 @@ export class ZedAdapter extends BaseAdapter implements HookAdapter {
   // ── Configuration ──────────────────────────────────────
 
   getSettingsPath(): string {
-    return resolve(homedir(), ".config", "zed", "settings.json");
+    return zedSettingsPath();
   }
 
   getInstructionFiles(): string[] {

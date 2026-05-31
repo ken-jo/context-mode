@@ -30,6 +30,7 @@ import color from "picocolors";
 
 import { detectPlatform, getAdapter } from "./adapters/detect.js";
 import { REGISTERED_PLATFORM_IDS } from "./adapters/registry.js";
+import { zedSettingsPath } from "./adapters/zed/index.js";
 import type { PlatformId } from "./adapters/types.js";
 import { parseJsonc } from "./util/jsonc.js";
 
@@ -209,7 +210,10 @@ const MCP_REGISTRATIONS: Partial<Record<PlatformId, McpRegHandler>> = {
   },
   "zed": {
     label: "Zed settings.json context_servers",
-    resolvePath: () => resolve(homedir(), ".config", "zed", "settings.json"),
+    // Platform-aware (Windows uses %LOCALAPPDATA%\Zed, not ~/.config) —
+    // shared with ZedAdapter.getSettingsPath so setup writes where doctor +
+    // Zed read. (Loop-3 Windows fix.)
+    resolvePath: () => zedSettingsPath(),
     containerKey: "context_servers",
     serverKey: SERVER_KEY,
     // Zed's context_servers Stdio variant flattens ContextServerCommand and
@@ -354,11 +358,11 @@ const MANUAL_HINTS: Partial<Record<PlatformId, string>> = {
   "opencode":
     "OpenCode auto-installs the plugin from npm into ~/.cache/opencode/packages/... Add `\"context-mode\"` to the `plugin` array in ~/.config/opencode/opencode.json (or opencode.jsonc) — this is the file `context-mode doctor` reads. config.json is also loaded by OpenCode but doctor inspects opencode.json.",
   "kilo":
-    "KiloCode auto-installs from npm into its package cache. Add `\"context-mode\"` to plugins in your KiloCode config.",
+    "KiloCode auto-installs the plugin from npm into its package cache. Add `\"context-mode\"` to the `plugin` array (key is singular) in ~/.config/kilo/kilo.json (or kilo.jsonc) — this is the file `context-mode doctor` reads. Project kilo.json / .kilo/kilo.json / .kilocode/kilo.json also work. On Windows the global dir is %APPDATA%\\kilo; XDG_CONFIG_HOME is honored when set.",
   "openclaw":
     "OpenClaw uses a native gateway plugin. Run `npm run install:openclaw` from the plugin root.",
   "pi":
-    "Pi loads extensions from ~/.pi/agent/extensions/context-mode/ (global, per earendil-works/pi docs/extensions.md) or .pi/extensions/context-mode/ (project). The PiAdapter currently resolves ~/.pi/extensions/context-mode/ — verify the active path with `context-mode doctor`. (postinstall does not auto-install the Pi extension; see docs/setup-improvements.md DI-7.)",
+    "Pi loads extensions from ~/.pi/agent/extensions/context-mode/ (global, per earendil-works/pi docs/extensions.md) or .pi/extensions/context-mode/ (project). The PiAdapter (the path `context-mode doctor` checks) resolves the global ~/.pi/agent/extensions/context-mode/. (postinstall does not auto-install the Pi extension; see docs/setup-improvements.md DI-7.)",
   "omp":
     "OMP loads MCP servers from ~/.omp/agent/mcp.json (key: mcpServers) — the exact file+key `context-mode doctor` checks. Add: \"mcpServers\": { \"context-mode\": { \"command\": \"context-mode\" } }. (PI_CODING_AGENT_DIR overrides ~/.omp/agent.)",
   // NOTE: codex is intentionally NOT here. It is HOOK_CAPABLE with a real
@@ -382,7 +386,7 @@ const UNINSTALL_HINTS: Partial<Record<PlatformId, string>> = {
   "opencode":
     "Remove `\"context-mode\"` from the `plugin` array in ~/.config/opencode/opencode.json (or opencode.jsonc).",
   "kilo":
-    "Remove `\"context-mode\"` from the plugins array in your KiloCode config.",
+    "Remove `\"context-mode\"` from the `plugin` array (key is singular) in ~/.config/kilo/kilo.json (or kilo.jsonc) — or whichever kilo.json the host loaded.",
   "openclaw":
     "Remove the context-mode entry from `plugins.entries` (and `mcp.servers`) in your openclaw.json; there is no automated uninstall script.",
   "pi":

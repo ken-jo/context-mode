@@ -232,6 +232,17 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
   }
 
   private paths(): string[] {
+    // GLOBAL tier MUST resolve through getConfigDir() so it honors
+    // XDG_CONFIG_HOME (POSIX) and APPDATA (Windows) exactly like the host
+    // runtime does. OpenCode/Kilo load global config from
+    // `$XDG_CONFIG_HOME/<platform>` or `%APPDATA%\<platform>` — NOT a
+    // hardcoded `~/.config/<platform>`. (Verified: openai/opencode #265/#251/
+    // #8235 + Kilo-Org/kilocode config loader.) The previous hardcoded
+    // `join(homedir(), ".config", platform, ...)` made `doctor` read the
+    // wrong directory on Windows and whenever XDG_CONFIG_HOME was set, so it
+    // reported "context-mode not found in plugin array" even when the host
+    // had loaded the plugin fine — a doctor-read ↔ platform-load split.
+    const globalDir = this.getConfigDir();
     if (this.platform === "kilo") {
       // Kilo runtime accepts `.kilo/`, `.kilocode/`, and `.opencode/` as
       // project config dirs (refs/platforms/kilo/packages/opencode/src/
@@ -244,8 +255,8 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
         resolve(".kilo", "kilo.jsonc"),
         resolve(".kilocode", "kilo.json"),
         resolve(".kilocode", "kilo.jsonc"),
-        join(homedir(), ".config", "kilo", "kilo.json"),
-        join(homedir(), ".config", "kilo", "kilo.jsonc"),
+        join(globalDir, "kilo.json"),
+        join(globalDir, "kilo.jsonc"),
       ];
     }
     return [
@@ -253,8 +264,8 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
       resolve("opencode.jsonc"),
       resolve(".opencode", "opencode.json"),
       resolve(".opencode", "opencode.jsonc"),
-      join(homedir(), ".config", "opencode", "opencode.json"),
-      join(homedir(), ".config", "opencode", "opencode.jsonc"),
+      join(globalDir, "opencode.json"),
+      join(globalDir, "opencode.jsonc"),
     ];
   }
 
@@ -335,7 +346,13 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
   readSettings(): Record<string, unknown> | null {
     this.settingsPath = undefined;
     const configPaths = this.paths();
-    const globalPaths = new Set(configPaths.filter(p => p.includes(homedir())));
+    // "Global" = anything under the host's config dir (XDG_CONFIG_HOME /
+    // APPDATA / ~/.config). Derive it from getConfigDir() rather than a
+    // `homedir()` substring test: when XDG_CONFIG_HOME points OUTSIDE the
+    // home directory the substring test wrongly classified the global file as
+    // project-scoped, so a global config without the plugin was skipped.
+    const globalDir = this.getConfigDir();
+    const globalPaths = new Set(configPaths.filter(p => p.startsWith(globalDir)));
     let firstValidSettings: Record<string, unknown> | null = null;
     let firstValidPath: string | undefined;
 

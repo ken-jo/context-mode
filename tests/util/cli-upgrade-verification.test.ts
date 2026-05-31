@@ -53,39 +53,37 @@ const upgradeBody = cliSrc.slice(upgradeIdx, upgradeIdx + 30000);
 // start.mjs wires HEAL 3 + HEAL 4 (Change 1)
 // ─────────────────────────────────────────────────────────
 
-describe("start.mjs HEAL 3 + HEAL 4 wiring (v1.0.114 hotfix)", () => {
-  test("imports the shared healInstalledPlugins module", () => {
-    expect(startSrc).toMatch(/heal-installed-plugins\.mjs/);
-    expect(startSrc).toContain("healInstalledPlugins");
+describe("start.mjs registry-heal-suite wiring (v1.0.114 hotfix; SOT-consolidated)", () => {
+  // Item B consolidated the inline HEAL 3/4/5b/5c blocks into
+  // scripts/lib/heal/runtime-heal-suite.mjs (runRuntimeHealSuite). start.mjs
+  // now CALLS the suite instead of inlining the loops; the suite imports the
+  // shared healers. These assertions track the SOT wiring.
+  test("imports + calls runRuntimeHealSuite from the shared suite module", () => {
+    expect(startSrc).toMatch(/runtime-heal-suite/);
+    expect(startSrc).toContain("runRuntimeHealSuite");
+    expect(startSrc).toMatch(/runRuntimeHealSuite\(/);
   });
 
-  test("HEAL 3+4 wiring lives between Layer 1 and Layer 4 blocks", () => {
-    const layer1Idx = startSrc.indexOf("Self-heal Layer 1");
-    const heal34Idx = startSrc.indexOf("HEAL 3");
-    const layer4Idx = startSrc.indexOf("Self-heal Layer 4");
-    expect(layer1Idx).toBeGreaterThan(-1);
-    expect(heal34Idx).toBeGreaterThan(-1);
-    expect(layer4Idx).toBeGreaterThan(-1);
-    expect(heal34Idx).toBeGreaterThan(layer1Idx);
-    expect(heal34Idx).toBeLessThan(layer4Idx);
+  test("the suite itself imports the shared heal healers", () => {
+    const suiteSrc = readFileSync(
+      resolve(ROOT, "scripts", "lib", "heal", "runtime-heal-suite.mjs"),
+      "utf-8",
+    );
+    expect(suiteSrc).toMatch(/heal-installed-plugins\.mjs/);
+    expect(suiteSrc).toContain("healInstalledPlugins");
   });
 
-  test("HEAL 3+4 wiring is wrapped in defensive try/catch (never blocks MCP boot)", () => {
-    const heal34Idx = startSrc.indexOf("HEAL 3");
-    const layer4Idx = startSrc.indexOf("Self-heal Layer 4");
-    const block = startSrc.slice(heal34Idx, layer4Idx);
-    // outer try around the dynamic import + inner try around the call =
-    // at least 2 try blocks
-    expect((block.match(/try\s*\{/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect(block).toContain("never block MCP boot");
+  test("the suite call is wrapped in defensive try/catch (never blocks MCP boot)", () => {
+    const idx = startSrc.indexOf("runRuntimeHealSuite(");
+    const block = startSrc.slice(Math.max(0, idx - 300), idx + 300);
+    expect((block.match(/try\s*\{/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(block).toMatch(/never block MCP boot|best effort/i);
   });
 
-  test("uses ~/.claude/plugins/installed_plugins.json + ~/.claude/plugins/cache as inputs", () => {
-    const heal34Idx = startSrc.indexOf("HEAL 3");
-    const layer4Idx = startSrc.indexOf("Self-heal Layer 4");
-    const block = startSrc.slice(heal34Idx, layer4Idx);
-    expect(block).toContain("installed_plugins.json");
-    expect(block).toContain('"cache"');
+  test("passes the resolved CLAUDE_CONFIG_DIR + plugin key into the suite", () => {
+    const idx = startSrc.indexOf("runRuntimeHealSuite(");
+    const block = startSrc.slice(idx, idx + 300);
+    expect(block).toMatch(/resolveClaudeConfigDir\(\)/);
     expect(block).toContain('"context-mode@context-mode"');
   });
 });
@@ -229,8 +227,11 @@ describe("v1.0.114 hotfix — full bug-prevention contract", () => {
     expect(postIdx).toBeGreaterThan(updateIdx);
   });
 
-  test("start.mjs HEAL block + cli.ts assertions cite v1.0.114 hotfix", () => {
-    expect(startSrc).toMatch(/v1\.0\.113|v1\.0\.114|HEAL 3|HEAL 4/);
+  test("start.mjs heal wiring + cli.ts assertions cite the hotfix lineage", () => {
+    // Post-SOT: the inline "HEAL 3/4" labels moved into runtime-heal-suite.mjs;
+    // start.mjs now references the suite. Accept either the suite wiring or the
+    // legacy labels so the citation test tracks the consolidation.
+    expect(startSrc).toMatch(/runtime-heal-suite|HEAL 3|HEAL 4|registry heal/i);
     expect(upgradeBody).toMatch(/v1\.0\.114|hotfix/);
   });
 });

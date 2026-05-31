@@ -29,10 +29,10 @@ Example MCP config (for reference): [`configs/jetbrains-copilot/mcp.json`](../co
 Install hooks using the automated setup command:
 
 ```bash
-npx context-mode@latest setup --adapter jetbrains-copilot
+context-mode upgrade   # writes .github/hooks/context-mode.json (configureAllHooks)
 ```
 
-This creates `.github/hooks/context-mode.json` in your project with the following hook configuration:
+`context-mode upgrade` writes `.github/hooks/context-mode.json` in your project (the same file `context-mode doctor` reads) with the following hook configuration. (Note: `context-mode setup jetbrains-copilot` only prints the MCP UI steps — it does not write the hook file; use `upgrade` or copy `configs/jetbrains-copilot/hooks.json`.):
 
 ```json
 {
@@ -89,7 +89,7 @@ You can also verify context savings by typing `ctx stats` in a Copilot chat sess
 **Hooks not firing**
 - Verify `.github/hooks/context-mode.json` exists in your project root.
 - JetBrains Copilot reads hooks from `.github/hooks/` — the same location as VS Code Copilot.
-- Re-run `npx context-mode@latest setup --adapter jetbrains-copilot` to regenerate the hook config.
+- Re-run `context-mode upgrade   # writes .github/hooks/context-mode.json (configureAllHooks)` to regenerate the hook config.
 
 **"context-mode: command not found"**
 - Install globally: `npm install -g context-mode`

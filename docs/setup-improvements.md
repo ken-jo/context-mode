@@ -158,6 +158,42 @@ User-perceived impact is the ordering signal. Each PR is independent.
 6. **PR-6 — Lockfile + publish** (F1 + F2 + F3) and **MCP-only honesty** (E1 + E2)
    – Hygiene bundle.
 
+## Discovered issues (live log)
+
+Captured during the work pass so they don't get lost. Promote to numbered
+checklist items when scoped, or close out inline if trivial.
+
+- [ ] **Hook idempotency.** `adapter.configureAllHooks` always reports
+  "Updated existing … hook entry" even when the entry already matches the
+  desired value. `setup --check` therefore reports `WOULD CONFIGURE` even
+  when nothing would actually change. Fix in adapter base: skip the
+  rewrite when the entry's `command` + `matcher` already equal the target.
+- [ ] **`prebuild-install@7.1.3` deprecation warning** during `npm install`
+  (transitive via `better-sqlite3`). Upstream is unmaintained. Track for a
+  drop-in replacement (`prebuildify` consumers / `binding-version`).
+- [ ] **Pre-existing TypeScript diagnostics in `src/cli.ts`** that surface
+  on every tsc run (unused `writeFileSync`/`mkdirSync` imports, missing
+  `.d.mts` for `../scripts/heal-installed-plugins.mjs` and
+  `../scripts/heal-better-sqlite3.mjs`). Not introduced by these PRs but
+  worth a separate cleanup.
+- [ ] **Stale `cli.bundle.mjs`** ships with every source change until
+  `npm run build` re-bundles. Today the publishing flow handles this
+  (`prepublishOnly: npm run build`) but contributors hit stale bundle
+  surprises locally. Consider a `pre-commit` hook or a CI assertion that
+  the committed bundle matches `npm run build` output.
+- [ ] **`/tmp/.git` pollution breaks `isGlobalInstall()` heuristic.** On
+  Devbox/Codespaces images where `/tmp` is a git repo (some Docker
+  bootstrap scripts do this), `isGlobalInstall()` walks up from a
+  tmpdir-staged package and finds `/tmp/.git` → returns `false` → heal
+  block silently skipped. Affects 3 tests in `postinstall-heal.test.ts`
+  on these machines. Fix: bound the walk by walking AT MOST 2 levels OR
+  detect-and-ignore `/tmp/.git`. Maintainer call: tightening the
+  heuristic vs. accepting that contributor envs are unusual.
+- [ ] **`setup --check` for hooks lacks true diff.** Today returns drift
+  unconditionally for json-stdio platforms when hooks are needed. Same
+  root cause as the hook idempotency item above — once adapters compare
+  before rewriting, `--check` can be honest.
+
 ## Open questions
 
 - [ ] `setup` should it accept `--scope user|project|local` like `claude mcp add`?

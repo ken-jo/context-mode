@@ -59,7 +59,24 @@ Context Mode is an MCP server that solves all four sides of this problem:
 
 ## Install
 
-Platforms are grouped by install complexity. Hook-capable platforms get automatic routing enforcement. Non-hook platforms need a one-time routing file copy.
+> **Quick install — every supported agent CLI (Claude Code, Gemini, VSCode Copilot, Cursor, OpenCode, KiloCode, Codex, Qwen, Kiro, Antigravity, Pi, OMP, Zed, JetBrains Copilot):**
+>
+> ```bash
+> npm install -g context-mode
+> context-mode setup           # auto-detects host CLI, writes hooks + MCP registration
+> context-mode doctor          # verifies the install
+> ```
+>
+> `setup` is idempotent (re-running is a no-op) and preserves any sibling
+> `mcpServers` / hooks entries you already had. `setup --uninstall` removes only the
+> context-mode entry. Per-platform details + escape-hatch JSON snippets are below
+> for users who prefer manual config or are on a host where the marketplace handles
+> install (Claude Code, OpenCode, Kilo, Pi, OMP).
+
+The expanded sections below preserve the original per-platform notes so you can see
+exactly what `setup` writes (and roll your own when needed). Hook-capable platforms
+get automatic routing enforcement. Non-hook platforms (Antigravity, Zed) fall back
+to a rules file — see the "Routing fidelity" banner on those sections.
 
 <details open>
 <summary><strong>Claude Code</strong> — plugin marketplace, fully automatic</summary>
@@ -683,6 +700,8 @@ The Codex plugin manifest provides MCP via `.codex-plugin/mcp.json`, skills via
 <details>
 <summary><strong>Antigravity</strong> — MCP-only, no hooks</summary>
 
+> **Routing fidelity: best-effort (~60%).** Antigravity has no hook surface. Routing relies on the `GEMINI.md` rules file at the project root; the model follows the routing nudges roughly 60% of the time per upstream measurements. `context-mode doctor` surfaces the same banner when run on an Antigravity host.
+
 **Prerequisites:** Node.js >= 22.5 (or Bun), Antigravity installed.
 
 **Install:**
@@ -781,6 +800,8 @@ Full configs: [`configs/kiro/mcp.json`](configs/kiro/mcp.json) | [`configs/kiro/
 
 <details>
 <summary><strong>Zed</strong> — MCP-only, no hooks</summary>
+
+> **Routing fidelity: best-effort (~60%).** Zed has no hook surface. Routing relies on the `AGENTS.md` rules file at the project root; the model follows the routing nudges roughly 60% of the time per upstream measurements. `context-mode doctor` surfaces the same banner when run on a Zed host.
 
 **Prerequisites:** Node.js >= 22.5 (or Bun), Zed installed.
 

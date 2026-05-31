@@ -76,6 +76,14 @@ Disambiguator carve-outs already in place:
 
 ### A. Install UX (highest impact)
 
+- [x] **A3.** README "Quick install" capsule at the top of the Install
+  section promises one-line setup across every supported agent CLI:
+  `npm install -g context-mode && context-mode setup`. Per-platform
+  sections preserved unchanged (the maintainer's careful escape-hatch
+  JSON snippets remain for users who prefer manual config or are on a
+  host where the marketplace handles install). MCP-only banner added
+  to Antigravity + Zed sections so users see the same "Routing fidelity:
+  best-effort (~60%)" honesty `doctor` already emits.
 - [x] **A1.** Add `context-mode setup [<platform>]` subcommand
   - `src/cli.ts` — registered routing alongside `doctor`, `upgrade`, `hook`, `insight`, `statusline`
   - `src/setup.ts` — new module

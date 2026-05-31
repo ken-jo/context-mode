@@ -29,110 +29,52 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..", "..");
 const startSrc = readFileSync(resolve(ROOT, "start.mjs"), "utf-8");
 
-describe("start.mjs — Issue #523 Layer 5b plugin.json mcpServers heal", () => {
-  test("imports healPluginJsonMcpServers from the shared module", () => {
-    expect(startSrc).toContain("healPluginJsonMcpServers");
-    // Must import from the single source of truth.
-    expect(startSrc).toMatch(/heal-installed-plugins\.mjs/);
+// After Item B (heal consolidation): the four heals live in
+// scripts/lib/heal/runtime-heal-suite.mjs as runRuntimeHealSuite, called
+// once each by postinstall.mjs and start.mjs. The contract is preserved
+// at two levels — start.mjs must wire the suite, AND the suite itself
+// must call all four healers. Detailed Layer-5b / Layer-5c assertions
+// against the suite source live in tests/util/postinstall-heal-mcp-json.test.ts.
+
+describe("start.mjs wires the runtime heal suite (Layers 3 / 4 / 5b / 5c)", () => {
+  test("imports + calls runRuntimeHealSuite from scripts/lib/heal/", () => {
+    expect(startSrc).toContain("runRuntimeHealSuite");
+    // Accept static `from "..."` or dynamic `import("...")`. start.mjs uses
+    // dynamic import so the suite's module load is paid only when the heal
+    // path actually fires (matches the existing dynamic-import posture for
+    // other defensive sub-modules in start.mjs).
+    expect(startSrc).toMatch(/(from|import\s*\()\s*["']\.\/scripts\/lib\/heal\/runtime-heal-suite/);
+    expect(startSrc).toMatch(/runRuntimeHealSuite\(/);
   });
 
-  test("Layer 5b heal call lives inside the existing HEAL 3+4 try-block", () => {
-    // We deliberately co-locate Layer 5b with HEAL 3+4 so all three heals
-    // share the same dynamic-import + outer try/catch (never block MCP boot).
-    const heal34Idx = startSrc.indexOf("HEAL 3");
-    const layer4Idx = startSrc.indexOf("Self-heal Layer 4");
-    expect(heal34Idx).toBeGreaterThan(-1);
-    expect(layer4Idx).toBeGreaterThan(-1);
-    const block = startSrc.slice(heal34Idx, layer4Idx);
-    expect(block).toContain("healPluginJsonMcpServers");
+  test("call uses phase: \"mcp-boot\"", () => {
+    expect(startSrc).toMatch(/phase\s*:\s*["']mcp-boot["']/);
   });
 
-  test("Layer 5b heal iterates ALL cache entries — not just our own pluginRoot", () => {
-    // Critical: a user can have multiple installed_plugins.json entries for
-    // context-mode (different versions, different scopes). The heal MUST run
-    // against EVERY entry's installPath under pluginCacheRoot, otherwise an
-    // older poisoned cache survives. We assert the iterator pattern: a `for`
-    // loop over installed_plugins.json's plugins[key] entries, calling the
-    // heal with each entry.installPath.
-    const heal34Idx = startSrc.indexOf("HEAL 3");
-    const layer4Idx = startSrc.indexOf("Self-heal Layer 4");
-    const block = startSrc.slice(heal34Idx, layer4Idx);
-    // The block must reference both `installPath` (from the registry entries)
-    // and `healPluginJsonMcpServers` so we know it iterates per-cache-dir.
-    expect(block).toContain("installPath");
-    expect(block).toContain("healPluginJsonMcpServers");
+  test("call passes the resolved CLAUDE_CONFIG_DIR (Issue #577)", () => {
+    const idx = startSrc.indexOf("runRuntimeHealSuite(");
+    const block = startSrc.slice(idx, idx + 400);
+    expect(block).toMatch(/resolveClaudeConfigDir\(\)/);
   });
 
-  test("Layer 5b heal is wrapped in defensive try/catch (never blocks MCP boot)", () => {
-    const heal34Idx = startSrc.indexOf("HEAL 3");
-    const layer4Idx = startSrc.indexOf("Self-heal Layer 4");
-    const block = startSrc.slice(heal34Idx, layer4Idx);
-    // Same posture as HEAL 3+4: outer try around dynamic import + inner try
-    // around the actual call. Plus the existing "never block MCP boot" comment.
-    expect((block.match(/try\s*\{/g) ?? []).length).toBeGreaterThanOrEqual(3);
-    expect(block).toContain("never block MCP boot");
+  test("call is wrapped in defensive try/catch (never blocks MCP boot)", () => {
+    const idx = startSrc.indexOf("runRuntimeHealSuite(");
+    const block = startSrc.slice(Math.max(0, idx - 200), idx + 400);
+    expect(block).toMatch(/try\s*\{/);
+    expect(block).toMatch(/never block MCP boot|best effort/i);
   });
 
-  test("postinstall.mjs also wires Layer 5b — escape hatch for already-broken users", () => {
-    // Mirrors how postinstall.mjs runs healInstalledPlugins + healSettingsEnabledPlugins
-    // (v1.0.114 + v1.0.116 escape hatches). When MCP is dead, the only way to recover is
-    // `npm install -g context-mode@1.0.119` whose postinstall MUST run Layer 5b too.
+  test("postinstall.mjs wires the same suite — escape hatch for already-broken users", () => {
+    // Mirrors how postinstall.mjs runs the v1.0.114 / v1.0.116 escape
+    // hatches. When MCP is dead, the only way to recover is
+    // `npm install -g context-mode` whose postinstall MUST run the same
+    // 4-layer suite. Asserted in tests/util/postinstall-heal-mcp-json.test.ts.
     const postinstallSrc = readFileSync(
       resolve(ROOT, "scripts", "postinstall.mjs"),
       "utf-8",
     );
-    expect(postinstallSrc).toContain("healPluginJsonMcpServers");
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// Issue #609 — start.mjs MUST run sweepStaleMcpJson alongside
-// healPluginJsonMcpServers so users broken by Claude Code's auto-update
-// carry-forward of a previous version's `.mcp.json` self-recover on the
-// next MCP boot.
-//
-// History:
-//   v1.0.122 (#531) — start.mjs ran `healMcpJsonArgs` per-installPath to
-//   heal poisoned `.mcp.json` args. cli.ts wrote `.mcp.json` at upgrade
-//   time then, so per-entry healing was the right shape.
-//
-//   Issue #609 superseded that. cli.ts no longer writes `.mcp.json`
-//   (canonical MCP source is `.claude-plugin/plugin.json.mcpServers` —
-//   upstream: mcpPluginIntegration.ts:131-212). Residual `.mcp.json`
-//   files in the cache are stale carry-forwards from prior installs.
-//   `sweepStaleMcpJson` removes them so the auto-update cannot replay
-//   them into a fresh version dir on the next /ctx-upgrade cycle.
-// ─────────────────────────────────────────────────────────────────────────
-
-describe("start.mjs — Issue #609 sweep stale .mcp.json", () => {
-  test("imports sweepStaleMcpJson from the shared module", () => {
-    expect(startSrc).toContain("sweepStaleMcpJson");
-    expect(startSrc).toMatch(/heal-installed-plugins\.mjs/);
-  });
-
-  test("sweep call lives inside the existing HEAL 3+4 try-block", () => {
-    // Co-located with healPluginJsonMcpServers — same dynamic-import + outer
-    // try/catch (never block MCP boot).
-    const heal34Idx = startSrc.indexOf("HEAL 3");
-    const layer4Idx = startSrc.indexOf("Self-heal Layer 4");
-    expect(heal34Idx).toBeGreaterThan(-1);
-    expect(layer4Idx).toBeGreaterThan(-1);
-    const block = startSrc.slice(heal34Idx, layer4Idx);
-    expect(block).toContain("sweepStaleMcpJson");
-  });
-
-  test("sweep is invoked once per boot with pluginCacheRoot + pluginKey", () => {
-    // The sweep operates against the cache root as a whole — not per-
-    // installPath. One call walks every version dir under <cacheRoot>/
-    // <owner>/<plugin>/ and removes any `.mcp.json`. This is cheaper than
-    // the previous per-entry healMcpJsonArgs loop and structurally cannot
-    // miss a version dir that's missing from the registry.
-    const heal34Idx = startSrc.indexOf("HEAL 3");
-    const layer4Idx = startSrc.indexOf("Self-heal Layer 4");
-    const block = startSrc.slice(heal34Idx, layer4Idx);
-    expect(block).toContain("sweepStaleMcpJson");
-    expect(block).toContain("pluginCacheRoot");
-    expect(block).toContain("pluginKey");
+    expect(postinstallSrc).toContain("runRuntimeHealSuite");
+    expect(postinstallSrc).toMatch(/phase\s*:\s*["']postinstall["']/);
   });
 });
 

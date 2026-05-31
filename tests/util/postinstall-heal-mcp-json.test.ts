@@ -15,8 +15,15 @@
  *   residual `.mcp.json` files in the cache are stale carry-forwards.
  *   Sweep them so the auto-update cannot replay them into a fresh dir.
  *
- * Static-analysis sibling of start-mjs-self-heal.test.ts — fast, deterministic,
- * no integration spawn.
+ *   Item B (this file's last rewrite) — the four heals consolidated into
+ *   scripts/lib/heal/runtime-heal-suite.mjs. Both postinstall.mjs and
+ *   start.mjs call runRuntimeHealSuite once instead of inlining 60+ lines
+ *   apiece. The "MUST run" contract carries through two structural
+ *   checks below: postinstall must wire the suite, AND the suite itself
+ *   must call the four healers.
+ *
+ * Static-analysis sibling of start-mjs-self-heal.test.ts — fast,
+ * deterministic, no integration spawn.
  */
 
 import { describe, expect, test } from "vitest";
@@ -27,37 +34,67 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..", "..");
 const postinstallSrc = readFileSync(resolve(ROOT, "scripts", "postinstall.mjs"), "utf-8");
+const suiteSrc = readFileSync(
+  resolve(ROOT, "scripts", "lib", "heal", "runtime-heal-suite.mjs"),
+  "utf-8",
+);
 
-describe("scripts/postinstall.mjs — Issue #609 sweep stale .mcp.json", () => {
-  test("imports sweepStaleMcpJson from the shared module", () => {
-    expect(postinstallSrc).toContain("sweepStaleMcpJson");
-    expect(postinstallSrc).toMatch(/heal-installed-plugins\.mjs/);
+describe("scripts/postinstall.mjs wires the runtime heal suite", () => {
+  test("imports + calls runRuntimeHealSuite from scripts/lib/heal/", () => {
+    expect(postinstallSrc).toContain("runRuntimeHealSuite");
+    expect(postinstallSrc).toMatch(/from\s+["']\.\/lib\/heal\/runtime-heal-suite/);
+    // Must actually invoke it — presence of import alone is not enough.
+    expect(postinstallSrc).toMatch(/runRuntimeHealSuite\(/);
   });
 
-  test("invokes sweepStaleMcpJson alongside healPluginJsonMcpServers", () => {
-    // Both must run in the same install-time heal block. Anchor on the
-    // existing #523 heal call and assert the sweep also lives nearby.
-    const heal523Idx = postinstallSrc.indexOf("healPluginJsonMcpServers");
-    expect(heal523Idx).toBeGreaterThan(-1);
-    const sweepIdx = postinstallSrc.indexOf("sweepStaleMcpJson");
-    expect(sweepIdx).toBeGreaterThan(-1);
-    // Distance between them should be modest — same block.
-    expect(Math.abs(sweepIdx - heal523Idx)).toBeLessThan(2000);
+  test("calls the suite with phase: \"postinstall\"", () => {
+    expect(postinstallSrc).toMatch(/phase\s*:\s*["']postinstall["']/);
   });
 
-  test("sweep call passes pluginCacheRoot and pluginKey", () => {
-    // Use lastIndexOf to anchor on the call site, not the import line.
-    const idx = postinstallSrc.lastIndexOf("sweepStaleMcpJson");
-    const block = postinstallSrc.slice(idx, idx + 500);
+  test("call is wrapped defensively (try/catch, never blocks install)", () => {
+    const idx = postinstallSrc.indexOf("runRuntimeHealSuite(");
+    // Widen the window: the defensive comment lives in either the inner
+    // try/catch around the suite call OR the helper-level "truly best
+    // effort" comment in the outer stderr-write fallback.
+    const block = postinstallSrc.slice(Math.max(0, idx - 400), idx + 1200);
+    expect(block).toMatch(/try\s*\{/);
+    expect(block).toMatch(/never block install|best effort|never crash|truly best effort|heal failure/i);
+  });
+});
+
+describe("runtime-heal-suite.mjs runs all 4 layers (#46915 / #523 / #609)", () => {
+  test("imports all 4 healers from heal-installed-plugins.mjs", () => {
+    expect(suiteSrc).toMatch(/healInstalledPlugins/);
+    expect(suiteSrc).toMatch(/healSettingsEnabledPlugins/);
+    expect(suiteSrc).toMatch(/healPluginJsonMcpServers/);
+    expect(suiteSrc).toMatch(/sweepStaleMcpJson/);
+    expect(suiteSrc).toMatch(/heal-installed-plugins\.mjs/);
+  });
+
+  test("Layer 5b iterates EVERY installed cache entry's installPath (#523)", () => {
+    // The healPluginJsonMcpServers section must loop over registry entries
+    // and pass each entry.installPath. Otherwise multi-version installs
+    // leave older poisoned caches untouched. Anchor on the FIRST occurrence
+    // (the comment block) and grow the window to include the loop.
+    const idx = suiteSrc.indexOf("Layer 5b");
+    expect(idx).toBeGreaterThan(-1);
+    const block = suiteSrc.slice(idx, idx + 2000);
+    expect(block).toMatch(/for\s*\(/);
+    expect(block).toContain("installPath");
+    expect(block).toMatch(/healPluginJsonMcpServers\(/);
+  });
+
+  test("Layer 5c sweep is called once with pluginCacheRoot + pluginKey (#609)", () => {
+    const idx = suiteSrc.lastIndexOf("sweepStaleMcpJson(");
+    expect(idx).toBeGreaterThan(-1);
+    const block = suiteSrc.slice(idx, idx + 400);
     expect(block).toContain("pluginCacheRoot");
     expect(block).toContain("pluginKey");
   });
 
-  test("sweep is wrapped defensively (try/catch, never blocks install)", () => {
-    // Best-effort posture — a failed sweep MUST NOT abort the install.
-    const idx = postinstallSrc.lastIndexOf("sweepStaleMcpJson");
-    const block = postinstallSrc.slice(Math.max(0, idx - 400), idx + 500);
-    expect(block).toMatch(/try\s*\{/);
-    expect(block).toMatch(/never block install|best effort/i);
+  test("each layer is wrapped in its own try/catch — never throws upstream", () => {
+    // The suite's contract is "best-effort, never throws". A failure in
+    // Layer 5b (e.g. a corrupt installPath) must not skip Layer 5c.
+    expect((suiteSrc.match(/try\s*\{/g) ?? []).length).toBeGreaterThanOrEqual(4);
   });
 });

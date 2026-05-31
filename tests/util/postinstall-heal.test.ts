@@ -36,6 +36,9 @@ const REPO_HEAL_SQLITE3 = resolve(REPO_ROOT, "scripts", "heal-better-sqlite3.mjs
 // Item C1 of docs/setup-improvements.md added this — postinstall.mjs imports
 // `runRuntimePrecheck` from it. Staged copy must mirror the npm tarball.
 const REPO_PRECHECK = resolve(REPO_ROOT, "scripts", "lib", "runtime-precheck.mjs");
+// Item B of docs/setup-improvements.md — postinstall.mjs imports
+// `runRuntimeHealSuite` from scripts/lib/heal/runtime-heal-suite.mjs.
+const REPO_HEAL_SUITE = resolve(REPO_ROOT, "scripts", "lib", "heal", "runtime-heal-suite.mjs");
 const KEY = "context-mode@context-mode";
 
 /**
@@ -61,6 +64,10 @@ function stagePostinstallPackage(): {
   copyFileSync(REPO_HEAL_IP, join(scriptsDir, "heal-installed-plugins.mjs"));
   copyFileSync(REPO_HEAL_SQLITE3, join(scriptsDir, "heal-better-sqlite3.mjs"));
   copyFileSync(REPO_PRECHECK, join(scriptsLibDir, "runtime-precheck.mjs"));
+  // Item B — postinstall.mjs imports runRuntimeHealSuite from scripts/lib/heal/.
+  const scriptsLibHealDir = join(scriptsLibDir, "heal");
+  mkdirSync(scriptsLibHealDir, { recursive: true });
+  copyFileSync(REPO_HEAL_SUITE, join(scriptsLibHealDir, "runtime-heal-suite.mjs"));
   // postinstall imports ../hooks/normalize-hooks.mjs — provide a no-op stub
   // so the import does not crash. Real postinstall wraps the import in
   // try/catch so even a missing file is fine, but copying a stub keeps the
@@ -269,6 +276,10 @@ describe("postinstall — /ctx-upgrade tmpdir staging guard", () => {
     copyFileSync(REPO_HEAL_SQLITE3, join(scriptsDir, "heal-better-sqlite3.mjs"));
     // Item C1 — postinstall imports lib/runtime-precheck.mjs; mirror tarball.
     copyFileSync(REPO_PRECHECK, join(scriptsLibDir, "runtime-precheck.mjs"));
+  // Item B — postinstall.mjs imports runRuntimeHealSuite from scripts/lib/heal/.
+  const scriptsLibHealDir = join(scriptsLibDir, "heal");
+  mkdirSync(scriptsLibHealDir, { recursive: true });
+  copyFileSync(REPO_HEAL_SUITE, join(scriptsLibHealDir, "runtime-heal-suite.mjs"));
     // Use the REAL normalize-hooks.mjs so we can detect a (buggy) mutation.
     copyFileSync(
       resolve(REPO_ROOT, "hooks", "normalize-hooks.mjs"),

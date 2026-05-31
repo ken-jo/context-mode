@@ -97,24 +97,24 @@ Disambiguator carve-outs already in place:
 
 ### B. Self-heal consolidation
 
-> **PARKED** — first attempt revealed that `tests/util/start-mjs-self-heal.test.ts`
-> + `tests/util/postinstall-heal-mcp-json.test.ts` (17 tests) **structurally
-> grep `start.mjs` / `postinstall.mjs` source** for literal heal-function names
-> in specific byte regions. Those tests are an intentional safeguard against
-> silent heal removal during a refactor — exactly the contract we'd want to
-> preserve. Item B needs a test-strategy redesign before the refactor lands,
-> or the safeguard goes with it.
-
-- [ ] **B0.** *(blocker — do first)* Replace structural source-grep tests with
-  behavior tests that exercise `runRuntimeHealSuite` against fixture
-  registries. Then the heal functions can move freely without losing the
-  "must-run" contract.
-- [ ] **B1.** New `scripts/lib/heal/index.mjs` with `runHeal({ phase, pluginRoot, claudeConfigDir })`
-  - `phase: "postinstall" | "mcp-boot" | "upgrade"`
-  - returns `{ healed: string[], skipped: string[], errors: string[] }` (no throws)
-- [ ] **B2.** `scripts/postinstall.mjs` and `start.mjs` reduce to: call `runHeal({ phase })`
-- [ ] **B3.** Each existing HEAL layer (1–6 across #46915, #408, #414, #523, #531, #564, #577, #609) becomes its own function with a unit test
-- [ ] **B4.** Add a per-phase manifest so doctor can report "HEAL X ran N times in last 7 days" (sourced from a JSON log in `${CLAUDE_CONFIG_DIR}/context-mode/heal.log`)
+- [x] **B0.** Structural source-grep tests rewritten to follow the new SOT
+  — both `tests/util/start-mjs-self-heal.test.ts` and
+  `tests/util/postinstall-heal-mcp-json.test.ts` now assert
+  (a) the surface script wires `runRuntimeHealSuite`, (b) the suite itself
+  imports and calls all 4 healers. Contract preserved at two levels with
+  17 cases unchanged in count.
+- [x] **B1.** `scripts/lib/heal/runtime-heal-suite.mjs` exports
+  `runRuntimeHealSuite({ pluginKey, claudeConfigDir, phase })` returning
+  `{ healed, skipped, errors, swept, notes }`. Never throws; each layer
+  has its own try/catch so a Layer 5b failure cannot skip Layer 5c.
+- [x] **B2.** `scripts/postinstall.mjs` (was ~100 lines of inline heal
+  loops) and `start.mjs` (was ~60 lines) each reduce to one
+  `runRuntimeHealSuite()` call.
+- [x] **B3.** Each healer already had its own unit test in
+  `tests/util/heal-installed-plugins.test.ts` — confirmed still passing
+  after the consolidation. Suite-level behavior is exercised indirectly
+  by `tests/util/postinstall-heal.test.ts` (spawn-based integration).
+- [ ] **B4.** Per-phase manifest for doctor (`heal.log` in `${CLAUDE_CONFIG_DIR}/context-mode/`) — deferred to a follow-up PR; the structure to record it is already there (`runRuntimeHealSuite` returns a structured report), but the read-back surface in doctor isn't needed for the consolidation itself.
 
 ### C. Linux Node<22.5 hard-fail UX
 

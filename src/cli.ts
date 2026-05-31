@@ -419,6 +419,18 @@ async function doctor(): Promise<number> {
       color.dim(` (${detection.confidence} confidence — ${detection.reason})`),
   );
 
+  // Item E2 of docs/setup-improvements.md — routing fidelity honesty.
+  // MCP-only paradigm hosts (antigravity, zed) cannot intercept tool calls
+  // and rely on a rules file (AGENTS.md / GEMINI.md) for routing nudges,
+  // which the model follows ~60% of the time per upstream measurements.
+  // Surface this explicitly so users don't expect hook-grade enforcement.
+  if (adapter.paradigm === "mcp-only") {
+    p.log.warn(
+      color.yellow("Routing fidelity: best-effort (~60%)") +
+        color.dim(` — ${adapter.name} has no hook surface; routing relies on a rules file`),
+    );
+  }
+
   let criticalFails = 0;
 
   try {

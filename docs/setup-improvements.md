@@ -132,12 +132,12 @@ Disambiguator carve-outs already in place:
 
 ### E. MCP-only routing best-effort honesty
 
-- [ ] **E1.** Audit Antigravity + Zed for any newly added pre-message hook surface (`chat.message`, `pre-input`, etc.)
-- [ ] **E2.** If still no surface: add a `Routing: best-effort (~60%)` banner to those two README sections and a `doctor` warning
+- [x] **E1.** Audit Antigravity + Zed for any newly added pre-message hook surface — neither adapter exposes a hook surface; both explicitly throw `"does not support hooks"` from `parsePreToolUseInput` etc. Confirmed via `paradigm === "mcp-only"`.
+- [x] **E2.** Doctor + setup both emit `Routing fidelity: best-effort (~60%)` immediately after the Platform line when `adapter.paradigm === "mcp-only"`. Guard: `tests/cli/mcp-only-routing-honesty.test.ts`. README banner deferred to the A3 README slim-down PR.
 
 ### F. Lockfile + publish hygiene
 
-- [ ] **F1.** Commit `package-lock.json` (today only `bun.lock` is tracked) — installs become reproducible for npm/pnpm users
+- [x] **F1.** ~~Commit `package-lock.json`~~ — **closed as by-design.** Maintainer ships `bun.lock` as the source of truth and explicitly `.gitignore`s `package-lock.json`. npm users get whatever npm resolves; that trade-off is documented in README's Build Prerequisites. Locked in by `tests/util/lockfile-policy.test.ts` so the policy can't drift accidentally.
 - [ ] **F2.** Verify `prepublishOnly` does not bundle dev-only paths (esbuild, vitest configs ship today — `files[]` is explicit so likely fine, but add a publish dry-run check to CI)
 - [ ] **F3.** Reduce postinstall runtime — defer registry heal to first MCP boot when possible; postinstall stays under 1s on the happy path
 

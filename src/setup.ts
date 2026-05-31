@@ -248,6 +248,17 @@ const HOOK_CAPABLE: ReadonlySet<PlatformId> = new Set([
   "kiro", "codex", // codex has its own hooks.json path
 ]);
 
+/**
+ * Item E2 of docs/setup-improvements.md — adapters whose `paradigm` is
+ * `"mcp-only"`. These hosts have no hook surface and rely on a rules file
+ * (AGENTS.md / GEMINI.md) for routing nudges; the model follows ~60% per
+ * upstream measurements. Surfaced in setup output + doctor so users do not
+ * mistake "Setup complete" for hook-grade enforcement.
+ */
+const MCP_ONLY_PARADIGM: ReadonlySet<PlatformId> = new Set([
+  "antigravity", "zed",
+]);
+
 async function applyHooksViaAdapter(
   platform: PlatformId,
   pluginRoot: string,
@@ -286,6 +297,15 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
     `Platform: ${color.cyan(platform)}` +
       color.dim(`  (${detection.confidence} confidence — ${detection.reason})`),
   );
+
+  // Item E2 — honesty banner for MCP-only paradigm hosts. Routing relies
+  // on a rules file (AGENTS.md / GEMINI.md), not on hooks.
+  if (MCP_ONLY_PARADIGM.has(platform)) {
+    p.log.warn(
+      color.yellow("Routing fidelity: best-effort (~60%)") +
+        color.dim(` — ${platform} has no hook surface; routing relies on a rules file`),
+    );
+  }
 
   // Default scope: vscode-copilot and cursor are project-first because their
   // canonical install path is per-project. Others are user-scoped.

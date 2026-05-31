@@ -76,15 +76,16 @@ Disambiguator carve-outs already in place:
 
 ### A. Install UX (highest impact)
 
-- [ ] **A1.** Add `context-mode setup [<platform>]` subcommand
-  - `src/cli.ts` — register routing alongside `doctor`, `upgrade`, `hook`, `insight`, `statusline`
+- [x] **A1.** Add `context-mode setup [<platform>]` subcommand
+  - `src/cli.ts` — registered routing alongside `doctor`, `upgrade`, `hook`, `insight`, `statusline`
   - `src/setup.ts` — new module
     - `detectPlatform()` → resolve adapter
     - read existing target config (mcp.json / hooks.json / settings.json) if any
-    - **deep-merge** template from `configs/<platform>/` (preserve user keys)
-    - **atomic write** (tmpfile + rename)
-    - flags: `--check` (dry-run, exit 1 on drift), `--platform <id>`, `--force`
-  - exit codes: 0 = no-op, 0 = applied, 1 = drift in `--check`, 2 = unsupported platform
+    - shallow-merge into the server map only (preserves user keys)
+    - **atomic write** via tmpfile + rename
+    - flags: `--check` (dry-run, exit 1 on drift), `--platform <id>`, `--force`, `--scope user|project`
+  - Behavior matrix per platform: json-stdio (7) writes; managed-externally (claude-code, opencode, kilo, openclaw, pi, omp) prints pointer; TOML/UI (codex, jetbrains-copilot) prints manual snippet
+  - Hook idempotency: `--check` reports "WOULD CONFIGURE" because `adapter.configureAllHooks` lacks a true-diff mode — fix tracked as B-side improvement
 - [ ] **A2.** Wire `npm run setup` script to the new subcommand (today it is dead — only `npx tsx src/cli.ts setup` works because `cli.ts` has no `setup` handler)
 - [ ] **A3.** Make `configs/<platform>/` the single source of truth
   - one canonical `mcp.json` + `hooks.json` (+ optional rules) per platform
@@ -96,6 +97,18 @@ Disambiguator carve-outs already in place:
 
 ### B. Self-heal consolidation
 
+> **PARKED** — first attempt revealed that `tests/util/start-mjs-self-heal.test.ts`
+> + `tests/util/postinstall-heal-mcp-json.test.ts` (17 tests) **structurally
+> grep `start.mjs` / `postinstall.mjs` source** for literal heal-function names
+> in specific byte regions. Those tests are an intentional safeguard against
+> silent heal removal during a refactor — exactly the contract we'd want to
+> preserve. Item B needs a test-strategy redesign before the refactor lands,
+> or the safeguard goes with it.
+
+- [ ] **B0.** *(blocker — do first)* Replace structural source-grep tests with
+  behavior tests that exercise `runRuntimeHealSuite` against fixture
+  registries. Then the heal functions can move freely without losing the
+  "must-run" contract.
 - [ ] **B1.** New `scripts/lib/heal/index.mjs` with `runHeal({ phase, pluginRoot, claudeConfigDir })`
   - `phase: "postinstall" | "mcp-boot" | "upgrade"`
   - returns `{ healed: string[], skipped: string[], errors: string[] }` (no throws)
@@ -111,11 +124,11 @@ Disambiguator carve-outs already in place:
 
 ### D. Adapter registry as data
 
-- [ ] **D1.** Move the three adapter sources of truth into one file
-  - today: `_PLATFORM_ENV_VARS_RAW` + `getSessionDirSegments` + `getAdapter` switch all need to stay in sync per adapter
-  - tomorrow: `src/adapters/registry.json` (or `.ts` data file) with `{ id, sessionDirSegments, envVars, lazyLoader }` per platform
-- [ ] **D2.** Generate `detect.ts` constants from the registry at build time (esbuild plugin or codegen pre-step)
-- [ ] **D3.** Add a registry matrix test that fails if a new adapter directory exists without a registry entry
+- [x] **D1.** Move the three adapter sources of truth into one file
+  - was: `_PLATFORM_ENV_VARS_RAW` + `getSessionDirSegments` + `getAdapter` switch all needed to stay in sync per adapter
+  - now: `src/adapters/registry.ts` with `{ id, sessionDirSegments, load }` per platform; `detect.ts` derives both lookups from it (`getSessionDirSegments` and `getAdapter` are 1-line wrappers)
+- [ ] **D2.** Generate `detect.ts` constants from the registry at build time (esbuild plugin or codegen pre-step) — currently registry + `PLATFORM_ENV_VARS` are both hand-maintained; `PLATFORM_ENV_VARS` migration is the follow-up
+- [x] **D3.** Add a registry matrix test that fails if a new adapter directory exists without a registry entry — `tests/adapters/registry.test.ts` (7 cases)
 
 ### E. MCP-only routing best-effort honesty
 

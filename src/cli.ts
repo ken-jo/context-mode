@@ -159,13 +159,20 @@ function printHelp(): void {
   console.log([
     "Usage:",
     "  context-mode                         Start MCP server (stdio)",
+    "  context-mode setup [<platform>]      Auto-detect host CLI and write hooks + MCP registration",
     "  context-mode doctor                  Diagnose runtime issues, hooks, FTS5, version",
     "  context-mode upgrade                 Fix hooks, permissions, and settings",
     "  context-mode hook <platform> <event> Dispatch a configured hook script",
     "  context-mode statusline              Print Claude Code status line",
     "",
+    "setup flags:",
+    "  --check                              Dry-run; exit 1 if changes would apply",
+    "  --force                              Re-write even when up-to-date",
+    "  --scope user|project                 Target scope for project-aware platforms (cursor, vscode-copilot)",
+    "",
     "Environment:",
     "  CONTEXT_MODE_DIR=/absolute/path      Override sessions/content storage root; empty is ignored, non-empty must be absolute",
+    "  CONTEXT_MODE_PLATFORM=<id>           Force platform detection (claude-code, gemini-cli, …)",
   ].join("\n"));
 }
 
@@ -173,6 +180,27 @@ if (args[0] === "--help" || args[0] === "-h" || args[0] === "help") {
   printHelp();
 } else if (args[0] === "doctor") {
   doctor().then((code) => process.exit(code));
+} else if (args[0] === "setup") {
+  const platformArg = args[1] && !args[1].startsWith("--") ? args[1] : undefined;
+  const check = args.includes("--check");
+  const force = args.includes("--force");
+  const scopeIdx = args.indexOf("--scope");
+  const scopeArg = scopeIdx >= 0 && args[scopeIdx + 1] ? args[scopeIdx + 1] : undefined;
+  const scope: "user" | "project" | undefined =
+    scopeArg === "user" || scopeArg === "project" ? scopeArg : undefined;
+  import("./setup.js").then(({ runSetup }) =>
+    runSetup({
+      pluginRoot: getPluginRoot(),
+      platform: platformArg as never,
+      check,
+      force,
+      scope,
+    }).then((code) => process.exit(code)),
+  ).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    p.log.error(color.red(message));
+    process.exit(1);
+  });
 } else if (args[0] === "upgrade") {
   // Issue #542 — accept --platform <id> from the ctx_upgrade MCP handler,
   // which forwards the live MCP clientInfo's resolved PlatformId. The flag

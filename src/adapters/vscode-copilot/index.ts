@@ -22,6 +22,7 @@ import { homedir } from "node:os";
 
 import { CopilotBaseAdapter } from "../copilot-base.js";
 import { resolveContextModeDataRoot } from "../base.js";
+import { parseJsonc } from "../../util/jsonc.js";
 import type { CopilotHookInput, CopilotHookModule } from "../copilot-base.js";
 
 import type {
@@ -147,7 +148,8 @@ export class VSCodeCopilotAdapter extends CopilotBaseAdapter {
     const hookConfigPath = resolve(hooksDir, "context-mode.json");
     try {
       const raw = readFileSync(hookConfigPath, "utf-8");
-      const config = JSON.parse(raw) as Record<string, unknown>;
+      // .github/hooks/context-mode.json may carry comments — tolerant parse.
+      const config = parseJsonc<Record<string, unknown>>(raw) ?? {};
       const hooks = config.hooks as Record<string, unknown> | undefined;
 
       // Check PreToolUse
@@ -220,13 +222,17 @@ export class VSCodeCopilotAdapter extends CopilotBaseAdapter {
     ];
     let anyReadable = false;
     for (const mcpConfigPath of candidates) {
-      let config: Record<string, unknown>;
+      let raw: string;
       try {
-        config = JSON.parse(readFileSync(mcpConfigPath, "utf-8")) as Record<string, unknown>;
-        anyReadable = true;
+        raw = readFileSync(mcpConfigPath, "utf-8");
       } catch {
         continue;
       }
+      anyReadable = true;
+      // VS Code mcp.json is officially JSONC — parse tolerantly to match
+      // setup's write path. (Loop-4 consistency fix.)
+      const config = parseJsonc<Record<string, unknown>>(raw);
+      if (!config) continue;
       const servers = config.servers as Record<string, unknown> | undefined;
       if (servers && Object.keys(servers).some((k) => k.includes("context-mode"))) {
         return {

@@ -20,6 +20,7 @@ import { resolve, join } from "node:path";
 import { homedir } from "node:os";
 
 import { BaseAdapter } from "../base.js";
+import { parseJsonc } from "../../util/jsonc.js";
 import { resolveClaudeConfigDir } from "../../util/claude-config.js";
 
 import type {
@@ -280,13 +281,17 @@ export class CursorAdapter extends BaseAdapter implements HookAdapter {
   }
 
   readSettings(): Record<string, unknown> | null {
+    // .cursor/hooks.json is JSONC — parse tolerantly; skip a present-but-
+    // unparseable file by continuing to the next candidate. (Loop-4 fix.)
     for (const configPath of this.getCandidateHookConfigPaths()) {
+      let raw: string;
       try {
-        const raw = readFileSync(configPath, "utf-8");
-        return JSON.parse(raw) as Record<string, unknown>;
+        raw = readFileSync(configPath, "utf-8");
       } catch {
         continue;
       }
+      const parsed = parseJsonc<Record<string, unknown>>(raw);
+      if (parsed) return parsed;
     }
     return null;
   }
@@ -441,7 +446,9 @@ export class CursorAdapter extends BaseAdapter implements HookAdapter {
     for (const configPath of mcpPaths) {
       try {
         const raw = readFileSync(configPath, "utf-8");
-        const config = JSON.parse(raw) as Record<string, unknown>;
+        // .cursor/mcp.json may be JSONC — parse tolerantly to match setup.
+        const config = parseJsonc<Record<string, unknown>>(raw);
+        if (!config) continue;
         const servers = (config.mcpServers ?? config.servers) as Record<string, unknown> | undefined;
         if (!servers) continue;
 

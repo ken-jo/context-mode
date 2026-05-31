@@ -32,6 +32,7 @@ import { resolve, join } from "node:path";
 import { homedir } from "node:os";
 
 import { BaseAdapter } from "../base.js";
+import { parseJsonc } from "../../util/jsonc.js";
 
 import type {
   HookAdapter,
@@ -295,9 +296,12 @@ export class GeminiCLIAdapter extends BaseAdapter implements HookAdapter {
   }
 
   readSettings(): Record<string, unknown> | null {
+    // ~/.gemini/settings.json is JSONC (Gemini CLI parses it with
+    // strip-json-comments) — parse tolerantly so doctor agrees with setup's
+    // JSONC-tolerant write path. (Loop-4 consistency fix.)
     try {
       const raw = readFileSync(this.getSettingsPath(), "utf-8");
-      return JSON.parse(raw) as Record<string, unknown>;
+      return parseJsonc<Record<string, unknown>>(raw) ?? null;
     } catch {
       return null;
     }

@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
 import { BaseAdapter } from "../base.js";
+import { parseJsonc } from "../../util/jsonc.js";
 
 import type {
   HookAdapter,
@@ -128,9 +129,11 @@ export class AntigravityAdapter extends BaseAdapter implements HookAdapter {
   }
 
   readSettings(): Record<string, unknown> | null {
+    // ~/.gemini/antigravity/mcp_config.json is JSONC (shares Gemini's config
+    // family) — parse tolerantly to match setup. (Loop-4 consistency fix.)
     try {
       const raw = readFileSync(this.getSettingsPath(), "utf-8");
-      return JSON.parse(raw);
+      return parseJsonc<Record<string, unknown>>(raw) ?? null;
     } catch {
       return null;
     }
@@ -159,8 +162,8 @@ export class AntigravityAdapter extends BaseAdapter implements HookAdapter {
   checkPluginRegistration(): DiagnosticResult {
     try {
       const raw = readFileSync(this.getSettingsPath(), "utf-8");
-      const config = JSON.parse(raw);
-      const mcpServers = config?.mcpServers ?? {};
+      const config = parseJsonc<Record<string, unknown>>(raw) ?? {};
+      const mcpServers = (config?.mcpServers as Record<string, unknown>) ?? {};
 
       if ("context-mode" in mcpServers) {
         return {

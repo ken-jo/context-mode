@@ -23,6 +23,7 @@ import { resolve, join, dirname } from "node:path";
 import { homedir } from "node:os";
 
 import { ClaudeCodeBaseAdapter, type ClaudeCodeWireInput } from "../claude-code-base.js";
+import { parseJsonc } from "../../util/jsonc.js";
 import { EXTERNAL_MCP_MATCHER_PATTERN } from "./hooks.js";
 
 import {
@@ -131,9 +132,11 @@ export class QwenCodeAdapter extends ClaudeCodeBaseAdapter implements HookAdapte
   // ── Settings read/write ────────────────────────────────
 
   readSettings(): Record<string, unknown> | null {
+    // ~/.qwen/settings.json is JSONC (Qwen Code shares Gemini's loader) —
+    // parse tolerantly to match setup's write path. (Loop-4 consistency fix.)
     try {
       const raw = readFileSync(this.getSettingsPath(), "utf-8");
-      return JSON.parse(raw) as Record<string, unknown>;
+      return parseJsonc<Record<string, unknown>>(raw) ?? null;
     } catch {
       return null;
     }

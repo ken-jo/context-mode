@@ -17,7 +17,7 @@ import {
   mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
 
 const tmps: string[] = [];
 function mkTmp(p = "ctx-loop2-"): string {
@@ -95,12 +95,54 @@ describe("zed: doctor parses JSONC settings.json (Loop-2)", () => {
     const { ZedAdapter } = await import("../../src/adapters/zed/index.js");
     const home = mkTmp("ctx-loop2-zed-");
     withHome(home);
-    const dir = resolve(home, ".config", "zed");
-    mkdirSync(dir, { recursive: true });
+    // zedSettingsPath() is platform-aware; reuse it so the test writes where
+    // the adapter reads on this OS (Loop-3/4).
+    const { zedSettingsPath } = await import("../../src/adapters/zed/index.js");
+    const p = zedSettingsPath();
+    mkdirSync(dirname(p), { recursive: true });
     writeFileSync(
-      join(dir, "settings.json"),
+      p,
       '{\n  // Zed config is JSONC\n  "context_servers": {\n    "context-mode": { "command": "context-mode", "args": [] },\n  }\n}\n',
     );
     expect(new ZedAdapter().checkPluginRegistration().status).toBe("pass");
   });
+});
+
+describe("doctor parses JSONC config for all home-rooted adapters (Loop-4)", () => {
+  // setup writes JSONC-tolerant; doctor must read the SAME commented files
+  // without false-failing. One commented config per adapter → PASS.
+  const cases: Array<{
+    id: string;
+    rel: string[];
+    container: string;
+    load: () => Promise<{ checkPluginRegistration(): { status: string } }>;
+  }> = [
+    { id: "gemini-cli", rel: [".gemini", "settings.json"], container: "mcpServers",
+      load: async () => new (await import("../../src/adapters/gemini-cli/index.js")).GeminiCLIAdapter() },
+    { id: "qwen-code", rel: [".qwen", "settings.json"], container: "mcpServers",
+      load: async () => new (await import("../../src/adapters/qwen-code/index.js")).QwenCodeAdapter() },
+    { id: "kiro", rel: [".kiro", "settings", "mcp.json"], container: "mcpServers",
+      load: async () => new (await import("../../src/adapters/kiro/index.js")).KiroAdapter() },
+    { id: "antigravity", rel: [".gemini", "antigravity", "mcp_config.json"], container: "mcpServers",
+      load: async () => new (await import("../../src/adapters/antigravity/index.js")).AntigravityAdapter() },
+    { id: "vscode-copilot", rel: [".vscode", "mcp.json"], container: "servers",
+      load: async () => new (await import("../../src/adapters/vscode-copilot/index.js")).VSCodeCopilotAdapter() },
+    { id: "cursor", rel: [".cursor", "mcp.json"], container: "mcpServers",
+      load: async () => new (await import("../../src/adapters/cursor/index.js")).CursorAdapter() },
+  ];
+
+  for (const c of cases) {
+    it(`${c.id}: checkPluginRegistration PASSES on a commented config`, async () => {
+      const home = mkTmp(`ctx-loop4-${c.id}-`);
+      withHome(home);
+      const p = resolve(home, ...c.rel);
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(
+        p,
+        `{\n  // ${c.id} config can be JSONC\n  "${c.container}": {\n    "context-mode": { "command": "context-mode" },\n  }\n}\n`,
+      );
+      const adapter = await c.load();
+      expect(adapter.checkPluginRegistration().status).toBe("pass");
+    });
+  }
 });

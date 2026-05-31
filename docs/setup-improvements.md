@@ -293,13 +293,96 @@ kill doc-misread false positives. 8 issues survived.
     `~/.kiro/` config-dir tier, which is by-design env-var-less).
   Runtime unchanged — these were doc lag against already-correct code.
 
-### Platforms verified CLEAN
+### Platforms verified CLEAN (first pass — see correction below)
 
-gemini-cli, vscode-copilot (key `servers`, correctly not `mcpServers`),
-cursor, qwen-code, codex (TOML hint correct; omitting `[features].hooks` is
-right for MCP-only), kilo, openclaw, omp (runtime correct; only stale docs).
-All received both internal-consistency AND official-web verification
-(`webAvailable: true` for all 14).
+cursor, kilo, openclaw, omp (runtime correct; only stale docs). All received
+both internal-consistency AND official-web verification (`webAvailable: true`
+for all 14).
+
+> **Correction (second pass):** the first pass wrongly marked **gemini-cli**,
+> **vscode-copilot**, **codex**, and **qwen-code** as fully CLEAN. A second
+> 11-agent re-verification workflow (focused on the fixes + a completeness
+> critic for missed issues) found real bugs in all four — see below. The
+> first-pass path-only regression guard gave false confidence because it
+> never asserted the doctor read the same container KEY setup wrote.
+
+## Second-pass verification findings (re-verify + completeness)
+
+An 11-agent workflow (1) adversarially re-confirmed WV-1~5 still hold and
+introduced no new mismatch, (2) audited the global `defaultScopeFor` refactor
++ the DI-1 idempotency change for regressions, and (3) ran completeness
+critics for issues the first pass missed. Result: WV-1~5 all still correct,
+scope-refactor clean — but the critics surfaced new HIGH bugs the first pass
+missed. All fixed + regression-guarded this session:
+
+- [x] **WV2-1 — gemini-cli container-KEY triangle break (HIGH).** `setup`/
+  `upgrade` write `mcpServers` to `~/.gemini/settings.json`, but
+  `GeminiCLIAdapter.checkPluginRegistration()` only read `extensions` → doctor
+  WARNed "not found in extensions" after a clean setup. Fixed: doctor now
+  checks `mcpServers` first (then `extensions` for the marketplace path).
+  Verified end-to-end (doctor reports PASS). New KEY-agreement regression test
+  asserts `checkPluginRegistration()` PASSES on what setup writes.
+- [x] **WV2-2 — codex MANUAL_HINTS dead-end (HIGH).** codex was in BOTH
+  `MANUAL_HINTS` and `HOOK_CAPABLE`; the manual short-circuit returned before
+  the hooks block, so codex's real `configureAllHooks` (writes `hooks.json` +
+  feature flag) never ran and doctor reported hooks FAIL. Fixed: removed codex
+  from `MANUAL_HINTS` (it now flows through hooks), added `POST_SETUP_NOTES`
+  printing the TOML MCP snippet after hooks run. Verified: setup writes 8 hook
+  changes + prints TOML note.
+- [x] **WV2-3 — `readJsonForMerge` data-loss guard (HIGH).** The old
+  `readJsonOrDefault` silently returned `{}` on any parse error, then the
+  atomic write WIPED every sibling MCP server + comments (VS Code `mcp.json`
+  is officially JSONC). Fixed: parse-error now backs the original up to
+  `<path>.broken` (visible + recoverable, like the codex adapter) before
+  writing fresh, and `removeMcpRegistration` refuses to touch an unparseable
+  file. Verified: a JSONC `.vscode/mcp.json` is backed up, not wiped.
+- [x] **WV2-4 — vscode-copilot `--scope user` unreadable by doctor (MED).**
+  Doctor read only project `.vscode/mcp.json`; `--scope user` writes
+  `~/.vscode/mcp.json`. Fixed: `checkPluginRegistration()` now checks both
+  (mirrors cursor's home fallback). KEY-agreement test covers it.
+- [x] **WV2-5 — vscode-copilot/jetbrains hook non-idempotency (MED).**
+  `copilot-base.configureAllHooks` rewrote unconditionally + always reported
+  "applied". Fixed with the DI-1 JSON-compare + write-skip guard.
+- [x] **WV2-6 — gemini-cli hook non-idempotency (MED).** `configureAllHooks`
+  used a naive `includes("context-mode")` predicate that never matched the
+  path-form command, appending a duplicate hook every run (DI-1 guard was dead
+  code there). Fixed to use the existing `isContextModeHook` helper.
+- [x] **WV2-7 — uninstall hints via naive regex (MED).** `manual.replace(/install/gi,"uninstall")`
+  produced `npm run uninstall:openclaw` (no such script) + "Add back the server
+  you're removing". Fixed with an explicit `UNINSTALL_HINTS` map.
+- [x] **WV2-8 — setup write failures exited 0 (MED).** Hook/MCP catch blocks
+  pushed to a discarded `warnings` array; a failed setup printed green
+  "complete" + exit 0. Fixed: a real write failure now sets `hadFailure` →
+  exit 1.
+- [x] **WV2-9 — `--check` always reported drift for hook-capable (MED).**
+  Fixed: in check mode hooks no longer contribute to the drift exit code (only
+  the deterministic MCP-registration dry-run does), so `--check` is a usable CI
+  drift detector. Verified: configured platform → `--check` exit 0.
+- [x] **WV2-10 — qwen-code `writeSettings` ENOENT on fresh machine (MED,
+  pre-existing, surfaced by WV2-8).** qwen `writeSettings` did `writeFileSync`
+  with no parent `mkdir`, throwing ENOENT when `~/.qwen/` didn't exist. Fixed
+  with `mkdirSync(dirname(...), {recursive:true})`.
+- [x] **WV2-11 — `--force` was dead (LOW).** Now wired into MCP registration
+  (re-writes even when up-to-date).
+- [x] **WV2-12 — `upsertKey` clobbered user fields (LOW).** MCP registration
+  now shallow-merges desired over the existing context-mode entry, preserving
+  a user's `env`/`args`.
+- [x] **WV2-13 — B4 heal-log `~/.claude` hardcode + unwanted-dir (LOW).**
+  postinstall now honors `$CLAUDE_CONFIG_DIR` (mirrors start.mjs), and the
+  heal-log is only written when a heal/sweep/error actually happened (no
+  unwanted `~/.claude/context-mode/` on a no-op fresh install). Rotation uses
+  hysteresis to shrink the concurrent-write race window.
+
+- [ ] **DI-10 — gemini/qwen shared-settings adapter `readSettings` data-loss
+  (MED, pre-existing).** For gemini-cli + qwen-code, hooks + mcpServers share
+  one `settings.json`; the adapter's `configureAllHooks`→`readSettings` returns
+  `{}` on a parse error and rewrites, dropping sibling content. The common
+  valid-JSON case is safe (hooks merge preserves mcpServers) and these files
+  are strict JSON (not JSONC), so the realistic JSONC data-loss case is
+  vscode-copilot's separate `mcp.json` — already covered by WV2-3. The
+  adapter-level shared-settings hardening (back up on parse error like
+  codex) is left for the maintainer since `readSettings` is shared with the
+  upgrade path + many callers.
 
 ## Open questions
 

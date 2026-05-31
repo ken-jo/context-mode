@@ -452,7 +452,7 @@ JetBrains Copilot (GitHub Copilot plugin for JetBrains IDEs) uses the same JSON 
 
 **Configuration:**
 - Hook config: `.github/hooks/*.json`
-- MCP config: Settings UI (Settings > Tools > AI Assistant > MCP)
+- MCP config: Settings UI (Settings > Tools > GitHub Copilot > Model Context Protocol (MCP) > Configure)
 
 **Hook Commands:**
 ```

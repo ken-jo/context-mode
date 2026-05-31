@@ -281,7 +281,7 @@ Full hook config including PreCompact: [`configs/vscode-copilot/hooks.json`](con
    npm install -g context-mode
    ```
 
-2. Add MCP server via Settings UI: **Settings > Tools > AI Assistant > Model Context Protocol (MCP) > Add Server**:
+2. Add MCP server via Settings UI: **Settings > Tools > GitHub Copilot > Model Context Protocol (MCP) > Configure** (NOT JetBrains' own "AI Assistant"):
    - **Name:** `context-mode`
    - **Command:** `context-mode`
 

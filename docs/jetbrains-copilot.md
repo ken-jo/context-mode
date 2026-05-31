@@ -13,7 +13,7 @@ Setup guide for using context-mode with JetBrains IDEs (IntelliJ IDEA, WebStorm,
 JetBrains configures MCP servers via the Settings UI, not a file.
 
 1. Open your JetBrains IDE.
-2. Go to **Settings > Tools > AI Assistant > Model Context Protocol (MCP)**.
+2. Go to **Settings > Tools > GitHub Copilot > Model Context Protocol (MCP) > Configure** (NOT JetBrains' own "AI Assistant").
 3. Click **Add Server** and configure:
    - **Name:** `context-mode`
    - **Command:** `npx`
@@ -84,7 +84,7 @@ You can also verify context savings by typing `ctx stats` in a Copilot chat sess
 **MCP server not connecting**
 - Ensure Node.js 18+ is in your PATH.
 - Restart the JetBrains IDE after adding the MCP server.
-- Check Settings > Tools > AI Assistant > MCP and confirm "context-mode" shows a green status indicator.
+- Check Settings > Tools > GitHub Copilot > MCP and confirm "context-mode" shows a green status indicator.
 
 **Hooks not firing**
 - Verify `.github/hooks/context-mode.json` exists in your project root.

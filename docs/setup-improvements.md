@@ -425,6 +425,35 @@ compatibility is an explicit audit dimension.
   omits it).
 - **Result: FAIL (3 major) → fixed → re-loop.** 936/936 tests, tsc clean.
 
+### Iteration 2 — 2 MAJOR found + fixed (Windows dimension added)
+
+- [x] **L2-1 (HIGH) openclaw upgrade missing MCP sidecar.** `context-mode
+  upgrade` → `OpenClawAdapter.configureAllHooks` wrote `plugins.entries` but
+  never `mcp.servers.context-mode`, so OpenClaw loaded the plugin with zero
+  agent-callable ctx_* tools, and `checkPluginRegistration` (entries-only)
+  reported pass. Fixed: configureAllHooks now registers the MCP sidecar +
+  `plugins.allow` (mirrors `register-openclaw-config.mjs`); doctor requires
+  BOTH entries AND mcp.servers.
+- [x] **L2-2 (HIGH) pi global extension path (DI-7 resolved).** The global
+  read path omitted the `agent/` segment; Pi auto-discovers from
+  `~/.pi/agent/extensions/` (earendil-works/pi — fork lineage confirmed by the
+  loop). Fixed checkPluginRegistration / getInstalledVersion / getSettingsPath.
+  Project path `.pi/extensions/` was already correct. **DI-7 closed.**
+- [x] **MED:** zed doctor parses JSONC (was strict → false-fail); invalid
+  explicit platform arg → exit 2 + supported list (keys off
+  REGISTERED_PLATFORM_IDS); vscode `--scope user` warns + falls back to
+  project (VS Code has no `~/.vscode/mcp.json`); postinstall section 0 gated on
+  `isGlobalInstall()`.
+- **SOT:** JSONC strip/parse extracted to `src/util/jsonc.ts` (`parseJsonc`),
+  shared by zed + setup.ts.
+- **Windows (explicit dimension this loop):** no Windows-breaking issue found;
+  all changed paths use `resolve()`/`join()`/`homedir()`; openclaw mirrors the
+  installer's exact server-bundle path form for install↔upgrade idempotency.
+- **Deferred (documented):** kilo `getInstalledVersion` cache path;
+  openclaw state-dir write location (both pre-existing; manual/externally-
+  managed platforms; primary defects fixed).
+- **Result: FAIL (2 major) → fixed → re-loop.** 939 tests pass, tsc clean.
+
 ## Open questions
 
 - [ ] `setup` should it accept `--scope user|project|local` like `claude mcp add`?

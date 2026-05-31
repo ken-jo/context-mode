@@ -27,6 +27,7 @@ import { resolve, join } from "node:path";
 import { homedir } from "node:os";
 
 import { BaseAdapter } from "../base.js";
+import { parseJsonc } from "../../util/jsonc.js";
 
 import type {
   HookAdapter,
@@ -282,12 +283,26 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
       join(homedir(), ".openclaw", "openclaw.json"),
     ];
     for (const configPath of paths) {
+      let raw: string;
       try {
-        const raw = readFileSync(configPath, "utf-8");
-        return JSON.parse(raw) as Record<string, unknown>;
+        raw = readFileSync(configPath, "utf-8");
       } catch {
-        continue;
+        continue; // file not present at this path — try the next
       }
+      // OpenClaw's config is officially JSON5 ("comments + trailing commas
+      // allowed" — docs.openclaw.ai/gateway/configuration-reference), so a
+      // strict JSON.parse false-fails a perfectly valid commented file and
+      // makes `doctor` report "Could not read openclaw.json" even though the
+      // gateway loads it fine. Use the JSONC-tolerant parse (same fix already
+      // applied to the zed adapter + setup.ts readJsonForMerge). (Loop-2.)
+      const parsed = parseJsonc<Record<string, unknown>>(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed;
+      }
+      // Found the file but it failed even the tolerant parse — stop here
+      // rather than falling through to a lower-priority path that would
+      // mask a genuinely broken config at the file the gateway actually uses.
+      return null;
     }
     return null;
   }

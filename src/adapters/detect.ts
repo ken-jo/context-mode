@@ -14,11 +14,17 @@
  *   - OpenCode:       OPENCODE_PROJECT_DIR, OPENCODE_CLIENT,
  *                     OPENCODE_TERMINAL, OPENCODE, OPENCODE_PID |
  *                     ~/.config/opencode/
- *   - OpenClaw:       OPENCLAW_HOME, OPENCLAW_CLI | ~/.openclaw/
+ *   - OpenClaw:       (no env signal — config-dir tier only) | ~/.openclaw/
  *   - Codex CLI:      CODEX_CI, CODEX_THREAD_ID | ~/.codex/
  *   - Cursor:         CURSOR_TRACE_ID (MCP), CURSOR_CLI (terminal) | ~/.cursor/
  *   - VS Code Copilot: VSCODE_PID, VSCODE_CWD | ~/.vscode/
- *   - JetBrains Copilot: IDEA_INITIAL_DIRECTORY, IDEA_HOME, JETBRAINS_CLIENT_ID | ~/.config/JetBrains/
+ *   - JetBrains Copilot: IDEA_INITIAL_DIRECTORY | ~/.config/JetBrains/
+ *
+ * NOTE: this header is a human summary; `ADAPTER_REGISTRY` in registry.ts is
+ * the single source of truth for the full 15-platform env-var set (incl.
+ * antigravity, zed, qwen-code, pi, omp, kiro). OPENCLAW_HOME/OPENCLAW_CLI and
+ * IDEA_HOME/JETBRAINS_CLIENT_ID were removed from the registry (no upstream
+ * source evidence) — do not re-add them here without a source line.
  */
 
 import { existsSync, readFileSync } from "node:fs";

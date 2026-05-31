@@ -216,6 +216,10 @@ const MCP_REGISTRATIONS: Partial<Record<PlatformId, McpRegHandler>> = {
     resolvePath: () => zedSettingsPath(),
     containerKey: "context_servers",
     serverKey: SERVER_KEY,
+    // Command-only (no `args: []`). Zed accepts a flat entry without args, and
+    // including an empty `args` key made mergedValue() reset a user's
+    // hand-edited `args` on every re-run — the one managed-field clobber the
+    // merge contract promises not to do. (Loop-4 finding.)
     // Zed's context_servers Stdio variant flattens ContextServerCommand and
     // renames its `path` field to the JSON key `command` — so the accepted
     // shape is a FLAT string: { "command": "context-mode", "args": [] }. The
@@ -224,7 +228,7 @@ const MCP_REGISTRATIONS: Partial<Record<PlatformId, McpRegHandler>> = {
     // loads). Verified against zed-industries/zed
     // crates/settings_content/src/project.rs + zed.dev/docs/ai/mcp.
     // (Loop-1 workflow finding.)
-    desired: { command: "context-mode", args: [] },
+    desired: { command: "context-mode" },
   },
 };
 

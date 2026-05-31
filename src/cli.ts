@@ -786,9 +786,11 @@ async function doctor(): Promise<number> {
   // Per ISSUE-604-VERDICT §11 same trust contract as Tier C check above.
   p.log.step("Checking for leftover .mcp.json files from older versions...");
   {
+    // Honor $CLAUDE_CONFIG_DIR so this scan tracks the same tree as the
+    // upgrade-side sweep + the rest of doctor (was hardcoded ~/.claude →
+    // false-green for custom-config-dir users). (Loop-1 finding.)
     const cacheRoot = join(
-      homedir(),
-      ".claude",
+      resolveClaudeConfigDir(),
       "plugins",
       "cache",
       "context-mode",
@@ -1447,7 +1449,6 @@ async function upgrade(opts?: { platform?: string }) {
       // registrations that point to old context-mode version dirs.
       // (anthropics/claude-code#59310 workaround — see heal-installed-plugins.mjs)
       try {
-        // @ts-expect-error — JS module, no TS declarations
         const { healClaudeJsonMcpArgs } = await import("../scripts/heal-installed-plugins.mjs");
         const dotClaudeJson = resolve(homedir(), ".claude.json");
         const pluginCacheParent = resolve(resolveClaudeConfigDir(), "plugins", "cache", "context-mode", "context-mode");

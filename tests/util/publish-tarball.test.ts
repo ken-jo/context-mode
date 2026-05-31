@@ -113,9 +113,13 @@ describe("publish tarball hygiene (Item F2)", () => {
     expect(result.size).toBeLessThan(5 * 1024 * 1024);
   });
 
-  test("file count stays under a sane budget (300 files)", () => {
-    // Today 158. The 300 ceiling catches accidental globbing
-    // (e.g. files[] going from explicit paths to "**/*.mjs").
-  expect(result.entryCount).toBeLessThan(300);
+  test("file count stays under a sane budget (600 files)", () => {
+    // A fully-built tree (prepublishOnly runs `npm run build`, which emits
+    // ~158 files into build/ that files[] ships) packs to ~318 files. The
+    // 600 ceiling still catches accidental globbing (e.g. files[] widening to
+    // "**/*.mjs" or shipping node_modules) without flaking on whether build/
+    // happens to be populated when the test runs. (Loop-1 calibration: the
+    // old 300 budget was measured against an UNBUILT tree.)
+    expect(result.entryCount).toBeLessThan(600);
   });
 });

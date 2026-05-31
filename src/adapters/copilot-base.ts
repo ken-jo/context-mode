@@ -277,51 +277,23 @@ export abstract class CopilotBaseAdapter extends BaseAdapter implements HookAdap
 
   generateHookConfig(pluginRoot: string): HookRegistration {
     const { HOOK_TYPES, buildHookCommand } = this.hookModule;
+    // GitHub Copilot (VS Code + JetBrains) hook entries are FLAT —
+    // `{ type: "command", command: "..." }` — NOT the Claude-Code nested
+    // `{ matcher, hooks: [...] }` shape. The maintainer's verified templates
+    // configs/{vscode,jetbrains}-copilot/hooks.json use the flat form
+    // (commit 2e44ba9, verified against code.visualstudio.com hooks docs);
+    // the nested shape this adapter used to emit does not parse and the hooks
+    // never fire. Match the templates exactly. (Loop-1 workflow finding.)
+    // NOTE: the HookRegistration type models the nested Claude-Code shape, so
+    // the flat entries are cast through unknown at the single writer below.
+    const flat = (hookType: string) => [
+      { type: "command", command: buildHookCommand(hookType, pluginRoot) },
+    ] as unknown as HookRegistration[string];
     return {
-      [HOOK_TYPES.PRE_TOOL_USE]: [
-        {
-          matcher: "",
-          hooks: [
-            {
-              type: "command",
-              command: buildHookCommand(HOOK_TYPES.PRE_TOOL_USE, pluginRoot),
-            },
-          ],
-        },
-      ],
-      [HOOK_TYPES.POST_TOOL_USE]: [
-        {
-          matcher: "",
-          hooks: [
-            {
-              type: "command",
-              command: buildHookCommand(HOOK_TYPES.POST_TOOL_USE, pluginRoot),
-            },
-          ],
-        },
-      ],
-      [HOOK_TYPES.PRE_COMPACT]: [
-        {
-          matcher: "",
-          hooks: [
-            {
-              type: "command",
-              command: buildHookCommand(HOOK_TYPES.PRE_COMPACT, pluginRoot),
-            },
-          ],
-        },
-      ],
-      [HOOK_TYPES.SESSION_START]: [
-        {
-          matcher: "",
-          hooks: [
-            {
-              type: "command",
-              command: buildHookCommand(HOOK_TYPES.SESSION_START, pluginRoot),
-            },
-          ],
-        },
-      ],
+      [HOOK_TYPES.PRE_TOOL_USE]: flat(HOOK_TYPES.PRE_TOOL_USE),
+      [HOOK_TYPES.POST_TOOL_USE]: flat(HOOK_TYPES.POST_TOOL_USE),
+      [HOOK_TYPES.PRE_COMPACT]: flat(HOOK_TYPES.PRE_COMPACT),
+      [HOOK_TYPES.SESSION_START]: flat(HOOK_TYPES.SESSION_START),
     };
   }
 
@@ -372,15 +344,13 @@ export abstract class CopilotBaseAdapter extends BaseAdapter implements HookAdap
       const script = HOOK_SCRIPTS[hookType];
       if (!script) continue;
 
+      // FLAT GitHub Copilot shape (see generateHookConfig) — must match the
+      // committed configs/{vscode,jetbrains}-copilot/hooks.json templates, NOT
+      // the Claude-Code nested matcher+hooks shape (which never fires).
       const desired = [
         {
-          matcher: "",
-          hooks: [
-            {
-              type: "command",
-              command: buildHookCommand(hookType, pluginRoot),
-            },
-          ],
+          type: "command",
+          command: buildHookCommand(hookType, pluginRoot),
         },
       ];
       // Item DI-1 — only report (and write) when the entry actually differs

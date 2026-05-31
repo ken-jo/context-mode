@@ -27,7 +27,7 @@ import { homedir } from "node:os";
 
 import type { PlatformId, DetectionSignal, HookAdapter, PlatformEnvEntry } from "./types.js";
 import { CLIENT_NAME_TO_PLATFORM } from "./client-map.js";
-import { ADAPTER_REGISTRY, getRegistryEntry } from "./registry.js";
+import { ADAPTER_REGISTRY, getRegistryEntry, REGISTERED_PLATFORM_IDS } from "./registry.js";
 
 // Re-export so the existing public surface stays the same (used by
 // src/util/project-dir.ts, hooks/, and external test files).
@@ -216,11 +216,10 @@ export function detectPlatform(clientInfo?: { name: string; version?: string }):
   // ── Explicit platform override ────────────────────────
   const platformOverride = process.env.CONTEXT_MODE_PLATFORM;
   if (platformOverride) {
-    const validPlatforms: PlatformId[] = [
-      "claude-code", "gemini-cli", "kilo", "opencode", "codex",
-      "vscode-copilot", "jetbrains-copilot", "cursor", "antigravity", "kiro", "pi", "omp", "zed", "qwen-code",
-    ];
-    if (validPlatforms.includes(platformOverride as PlatformId)) {
+    // Derive the valid set from the registry (single source of truth) rather
+    // than a hand-maintained list — the old literal omitted "openclaw", so
+    // `CONTEXT_MODE_PLATFORM=openclaw` was silently ignored. (Loop-1 finding.)
+    if (REGISTERED_PLATFORM_IDS.has(platformOverride as PlatformId)) {
       return {
         platform: platformOverride as PlatformId,
         confidence: "high",

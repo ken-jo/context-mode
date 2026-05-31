@@ -203,6 +203,13 @@ describe("setup matrix — write per platform", () => {
         : "mcpServers";
       expect(parsed[containerKey]).toBeDefined();
       expect(parsed[containerKey]["context-mode"]).toBeDefined();
+      // Loop-1 regression: Zed's context_servers entry must be FLAT —
+      // `command` is a STRING ("context-mode"), not the nested
+      // `{ path, args }` object that current Zed rejects (server fails to load).
+      if (platform === "zed") {
+        expect(typeof parsed.context_servers["context-mode"].command).toBe("string");
+        expect(parsed.context_servers["context-mode"].command).toBe("context-mode");
+      }
     });
   }
 });

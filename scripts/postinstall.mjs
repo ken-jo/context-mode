@@ -144,10 +144,10 @@ if (isGlobalInstall()) {
 // When this install completes, installed_plugins.json may still point to an old
 // non-existent path. Create a symlink from that old path → our new directory.
 try {
-  const ipPath = resolve(homedir(), ".claude", "plugins", "installed_plugins.json");
+  const ipPath = resolve(resolveClaudeConfigDir(), "plugins", "installed_plugins.json");
   if (existsSync(ipPath)) {
     const ip = JSON.parse(readFileSync(ipPath, "utf-8"));
-    const cacheRoot = resolve(homedir(), ".claude", "plugins", "cache");
+    const cacheRoot = resolve(resolveClaudeConfigDir(), "plugins", "cache");
     for (const [key, entries] of Object.entries(ip.plugins || {})) {
       if (key !== "context-mode@context-mode") continue;
       for (const entry of entries) {

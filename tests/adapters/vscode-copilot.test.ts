@@ -268,12 +268,15 @@ describe("VSCodeCopilotAdapter", () => {
       // the actual #613 surface.
       const reg = adapter.generateHookConfig("/any/abs/plugin/root");
       for (const entries of Object.values(reg)) {
-        for (const entry of entries) {
-          for (const hook of entry.hooks) {
-            expect(hook.command).toMatch(/^context-mode hook vscode-copilot /);
-            expect(hook.command).not.toContain("/any/abs/plugin/root");
-            expect(hook.command).not.toContain(process.execPath);
-          }
+        for (const entry of entries as unknown as Array<{ command?: string; matcher?: unknown; hooks?: unknown }>) {
+          // FLAT GitHub Copilot shape: each entry is { type, command } —
+          // NOT the Claude-Code nested { matcher, hooks: [...] } (which the
+          // Copilot runtime does not parse). Guard the shape AND the command.
+          expect(entry.matcher).toBeUndefined();
+          expect(entry.hooks).toBeUndefined();
+          expect(entry.command).toMatch(/^context-mode hook vscode-copilot /);
+          expect(entry.command).not.toContain("/any/abs/plugin/root");
+          expect(entry.command).not.toContain(process.execPath);
         }
       }
     });

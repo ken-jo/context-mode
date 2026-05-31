@@ -819,15 +819,14 @@ Full configs: [`configs/kiro/mcp.json`](configs/kiro/mcp.json) | [`configs/kiro/
    {
      "context_servers": {
        "context-mode": {
-         "command": {
-           "path": "context-mode"
-         }
+         "command": "context-mode",
+         "args": []
        }
      }
    }
    ```
 
-   Note: Zed uses `"context_servers"` and `"command": { "path": "..." }` syntax, not `"mcpServers"` or `"command": "..."` like other platforms.
+   Note: Zed uses the `"context_servers"` key (not `"mcpServers"`). The entry is FLAT — `"command": "context-mode"` (a string) with optional `"args"`. The older nested `"command": { "path": "..." }` form is not accepted by current Zed and the server silently fails to load.
 
 3. Copy routing instructions (Zed has no hook support):
 

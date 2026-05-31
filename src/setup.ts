@@ -79,6 +79,38 @@ export interface SetupResult {
  * JSONC, so even a valid commented file tripped it. Backing up before reset
  * (like the codex adapter) makes the data loss recoverable + visible.
  */
+/**
+ * JSONC-tolerant comment + trailing-comma stripper (copy of server.ts's
+ * stripJsonComments — duplicated rather than imported to avoid pulling the
+ * MCP server's top-level boot side-effects into the CLI bundle). String-aware:
+ * never strips `//` or `/* *​/` that appear inside a JSON string.
+ */
+function stripJsonComments(str: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  let inBlockComment = false;
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    const next = str[i + 1];
+    if (inBlockComment) {
+      if (c === "*" && next === "/") { inBlockComment = false; i++; }
+      continue;
+    }
+    if (escaped) { out += c; escaped = false; continue; }
+    if (c === "\\") { out += c; escaped = inString; continue; }
+    if (c === '"') { inString = !inString; out += c; continue; }
+    if (!inString && c === "/" && next === "/") {
+      while (i < str.length && str[i] !== "\n") i++;
+      if (i < str.length) out += "\n";
+      continue;
+    }
+    if (!inString && c === "/" && next === "*") { inBlockComment = true; i++; continue; }
+    out += c;
+  }
+  return out.replace(/,(\s*[}\]])/g, "$1");
+}
+
 function readJsonForMerge(
   path: string,
   dryRun: boolean,
@@ -86,12 +118,19 @@ function readJsonForMerge(
   if (!existsSync(path)) return { root: {} };
   let raw: string;
   try { raw = readFileSync(path, "utf-8"); } catch { return { root: {} }; }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return { root: parsed as Record<string, unknown> };
-    }
-  } catch { /* fall through to backup */ }
+  // Strict parse first, then a JSONC-tolerant parse (comments + trailing
+  // commas). VS Code mcp.json is officially JSONC, so a VALID commented file
+  // must merge in place — preserving sibling servers — not get reset. Only a
+  // genuinely unparseable file is backed up + replaced. (Loop-1 finding: the
+  // strict-only parse treated valid JSONC as broken and dropped siblings.)
+  for (const candidate of [raw, stripJsonComments(raw)]) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return { root: parsed as Record<string, unknown> };
+      }
+    } catch { /* try next candidate, then back up */ }
+  }
   const backedUp = `${path}.broken`;
   if (!dryRun) {
     try { writeFileSync(backedUp, raw, "utf-8"); } catch { /* best effort */ }
@@ -207,8 +246,15 @@ const MCP_REGISTRATIONS: Partial<Record<PlatformId, McpRegHandler>> = {
     resolvePath: () => resolve(homedir(), ".config", "zed", "settings.json"),
     containerKey: "context_servers",
     serverKey: SERVER_KEY,
-    // Zed context_servers entries use a slightly different shape.
-    desired: { command: { path: "context-mode", args: [] } },
+    // Zed's context_servers Stdio variant flattens ContextServerCommand and
+    // renames its `path` field to the JSON key `command` — so the accepted
+    // shape is a FLAT string: { "command": "context-mode", "args": [] }. The
+    // old nested { command: { path, args } } form fails to deserialize under
+    // Zed's #[serde(untagged)] enum and is silently dropped (server never
+    // loads). Verified against zed-industries/zed
+    // crates/settings_content/src/project.rs + zed.dev/docs/ai/mcp.
+    // (Loop-1 workflow finding.)
+    desired: { command: "context-mode", args: [] },
   },
 };
 
@@ -346,9 +392,9 @@ const MANUAL_HINTS: Partial<Record<PlatformId, string>> = {
   "openclaw":
     "OpenClaw uses a native gateway plugin. Run `npm run install:openclaw` from the plugin root.",
   "pi":
-    "Pi installs as an extension under the Pi agent directory. The PiAdapter resolves ~/.pi/extensions/context-mode/; note Pi's global extension scanner may use ~/.pi/agent/extensions/ depending on your Pi build — verify with `context-mode doctor`. (postinstall does not auto-install the Pi extension; see docs/setup-improvements.md DI-7.)",
+    "Pi loads extensions from ~/.pi/agent/extensions/context-mode/ (global, per earendil-works/pi docs/extensions.md) or .pi/extensions/context-mode/ (project). The PiAdapter currently resolves ~/.pi/extensions/context-mode/ — verify the active path with `context-mode doctor`. (postinstall does not auto-install the Pi extension; see docs/setup-improvements.md DI-7.)",
   "omp":
-    "OMP installs as a plugin via the npm package. The Pi runtime picks it up at ~/.omp/.",
+    "OMP loads MCP servers from ~/.omp/agent/mcp.json (key: mcpServers) — the exact file+key `context-mode doctor` checks. Add: \"mcpServers\": { \"context-mode\": { \"command\": \"context-mode\" } }. (PI_CODING_AGENT_DIR overrides ~/.omp/agent.)",
   // NOTE: codex is intentionally NOT here. It is HOOK_CAPABLE with a real
   // configureAllHooks (writes ~/.codex/hooks.json + enables the feature
   // flag), so it must flow through the hooks path rather than short-circuit.
@@ -374,7 +420,7 @@ const UNINSTALL_HINTS: Partial<Record<PlatformId, string>> = {
   "openclaw":
     "Remove the context-mode entry from `plugins.entries` (and `mcp.servers`) in your openclaw.json; there is no automated uninstall script.",
   "pi":
-    "Delete the context-mode extension directory under your Pi agent dir (e.g. ~/.pi/extensions/context-mode/ or ~/.pi/agent/extensions/context-mode/).",
+    "Delete the context-mode extension directory under your Pi agent dir (~/.pi/agent/extensions/context-mode/ global, or .pi/extensions/context-mode/ project).",
   "omp":
     "Remove the context-mode entry from `mcpServers` in ~/.omp/agent/mcp.json.",
   "jetbrains-copilot":
@@ -454,6 +500,22 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
       color.dim(`  (${detection.confidence} confidence — ${detection.reason})`),
   );
 
+  // Unknown / undetected platform — don't print a green "Already configured"
+  // having written nothing. Tell the user how to target a supported host.
+  // (Loop-1 finding.)
+  if (platform === "unknown") {
+    p.log.warn(color.yellow("Could not detect a supported agent CLI."));
+    p.note(
+      "Pass an explicit platform, e.g. `context-mode setup gemini-cli`.\n" +
+        "Supported: claude-code, gemini-cli, vscode-copilot, cursor, qwen-code,\n" +
+        "kiro, antigravity, zed, codex, jetbrains-copilot, opencode, kilo,\n" +
+        "openclaw, pi, omp.",
+      "unsupported",
+    );
+    p.outro(color.yellow("No changes written — platform not detected."));
+    return 2;
+  }
+
   // Item E2 — honesty banner for MCP-only paradigm hosts. Routing relies
   // on a rules file (AGENTS.md / GEMINI.md), not on hooks.
   if (MCP_ONLY_PARADIGM.has(platform)) {
@@ -515,6 +577,7 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
       const msg = err instanceof Error ? err.message : String(err);
       p.log.error(color.red(`MCP unregister: FAIL — ${msg}`));
       warnings.push(`uninstall mcp: ${msg}`);
+      hadFailure = true;
     }
     // Hooks removal is adapter-specific (each adapter writes its own keys);
     // for the MVP we point the user at manual removal rather than risking
@@ -523,6 +586,12 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
     p.log.info(
       color.dim("Hook entries (if any) left in place — remove manually from your platform's hooks.json."),
     );
+    // A real unregister write failure → non-zero exit (mirrors the install
+    // path; previously the uninstall branch always exited 0). (Loop-1 finding.)
+    if (hadFailure) {
+      p.outro(color.red("Uninstall finished with errors — see the FAIL lines above."));
+      return 1;
+    }
     if (opts.check && driftSeen) {
       p.outro(color.yellow("Drift detected — re-run without --check to apply."));
       return 1;

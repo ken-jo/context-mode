@@ -27,6 +27,7 @@ import { homedir } from "node:os";
 
 import type { PlatformId, DetectionSignal, HookAdapter } from "./types.js";
 import { CLIENT_NAME_TO_PLATFORM } from "./client-map.js";
+import { getRegistryEntry } from "./registry.js";
 
 /**
  * Issue #539 — fallback disambiguator. When env-var detection would
@@ -324,33 +325,16 @@ export function foreignIdentificationEnv(platform: PlatformId): Set<string> {
 
 /**
  * Sync map from platform identifier → home-relative path segments where that
- * platform stores its config. Mirrors the `super([...])` argument passed by
- * each adapter — kept in sync as the single source of truth used when we need
- * a session dir BEFORE an adapter has been instantiated (race window between
- * MCP server start and `initialize` handshake completion).
+ * platform stores its config. Used before an adapter has been instantiated
+ * (race window between MCP server start and `initialize` handshake completion).
  *
  * Returns `null` for "unknown" or any string outside the supported set so the
- * caller can decide on a safe fallback.
+ * caller can decide on a safe fallback. The mapping lives in
+ * `adapters/registry.ts` — this function is a lookup wrapper.
  */
 export function getSessionDirSegments(platform: string): string[] | null {
-  switch (platform) {
-    case "claude-code":      return [".claude"];
-    case "gemini-cli":       return [".gemini"];
-    case "antigravity":      return [".gemini"];
-    case "openclaw":         return [".openclaw"];
-    case "codex":            return [".codex"];
-    case "cursor":           return [".cursor"];
-    case "vscode-copilot":   return [".vscode"];
-    case "kiro":             return [".kiro"];
-    case "pi":               return [".pi"];
-    case "omp":              return [".omp"];
-    case "qwen-code":        return [".qwen"];
-    case "kilo":             return [".config", "kilo"];
-    case "opencode":         return [".config", "opencode"];
-    case "zed":              return [".config", "zed"];
-    case "jetbrains-copilot": return [".config", "JetBrains"];
-    default:                 return null;
-  }
+  const entry = getRegistryEntry(platform);
+  return entry ? [...entry.sessionDirSegments] : null;
 }
 
 /**
@@ -555,91 +539,17 @@ export function detectPlatform(clientInfo?: { name: string; version?: string }):
 
 /**
  * Get the adapter instance for a given platform.
- * Lazily imports platform-specific adapter modules.
+ *
+ * Looks the target up in `ADAPTER_REGISTRY` (single source of truth in
+ * `adapters/registry.ts`). Unknown / "unknown" ids fall back to
+ * ClaudeCodeAdapter so the MCP server still works on unsupported hosts.
  */
 export async function getAdapter(platform?: PlatformId): Promise<HookAdapter> {
   const target = platform ?? detectPlatform().platform;
-
-  switch (target) {
-    case "claude-code": {
-      const { ClaudeCodeAdapter } = await import("./claude-code/index.js");
-      return new ClaudeCodeAdapter();
-    }
-
-    case "gemini-cli": {
-      const { GeminiCLIAdapter } = await import("./gemini-cli/index.js");
-      return new GeminiCLIAdapter();
-    }
-
-    case "kilo":
-    case "opencode": {
-      const { OpenCodeAdapter } = await import("./opencode/index.js");
-      return new OpenCodeAdapter(target);
-    }
-
-    case "openclaw": {
-      const { OpenClawAdapter } = await import("./openclaw/index.js");
-      return new OpenClawAdapter();
-    }
-
-    case "codex": {
-      const { CodexAdapter } = await import("./codex/index.js");
-      return new CodexAdapter();
-    }
-
-    case "vscode-copilot": {
-      const { VSCodeCopilotAdapter } = await import("./vscode-copilot/index.js");
-      return new VSCodeCopilotAdapter();
-    }
-
-    case "jetbrains-copilot": {
-      const { JetBrainsCopilotAdapter } = await import("./jetbrains-copilot/index.js");
-      return new JetBrainsCopilotAdapter();
-    }
-
-    case "cursor": {
-      const { CursorAdapter } = await import("./cursor/index.js");
-      return new CursorAdapter();
-    }
-
-    case "antigravity": {
-      const { AntigravityAdapter } = await import("./antigravity/index.js");
-      return new AntigravityAdapter();
-    }
-
-    case "kiro": {
-      const { KiroAdapter } = await import("./kiro/index.js");
-      return new KiroAdapter();
-    }
-
-    case "zed": {
-      const { ZedAdapter } = await import("./zed/index.js");
-      return new ZedAdapter();
-    }
-
-    case "qwen-code": {
-      const { QwenCodeAdapter } = await import("./qwen-code/index.js");
-      return new QwenCodeAdapter();
-    }
-
-    case "omp": {
-      const { OMPAdapter } = await import("./omp/index.js");
-      return new OMPAdapter();
-    }
-
-    case "pi": {
-      // Issue #473 follow-up: without this case, getAdapter("pi") fell
-      // through to ClaudeCodeAdapter and Pi sessions wrote into
-      // ~/.claude/context-mode/. PiAdapter pins storage to ~/.pi/.
-      const { PiAdapter } = await import("./pi/index.js");
-      return new PiAdapter();
-    }
-
-    default: {
-      // Unsupported platform — fall back to Claude Code adapter
-      // (MCP server works everywhere, hooks may not)
-      const { ClaudeCodeAdapter } = await import("./claude-code/index.js");
-      return new ClaudeCodeAdapter();
-    }
-  }
+  const entry = getRegistryEntry(target);
+  if (entry) return entry.load();
+  // Unsupported platform — fall back to Claude Code adapter
+  // (MCP server works everywhere, hooks may not).
+  const { ClaudeCodeAdapter } = await import("./claude-code/index.js");
+  return new ClaudeCodeAdapter();
 }

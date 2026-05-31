@@ -33,6 +33,9 @@ const REPO_ROOT = resolve(__dirname, "../..");
 const REPO_POSTINSTALL = resolve(REPO_ROOT, "scripts", "postinstall.mjs");
 const REPO_HEAL_IP = resolve(REPO_ROOT, "scripts", "heal-installed-plugins.mjs");
 const REPO_HEAL_SQLITE3 = resolve(REPO_ROOT, "scripts", "heal-better-sqlite3.mjs");
+// Item C1 of docs/setup-improvements.md added this — postinstall.mjs imports
+// `runRuntimePrecheck` from it. Staged copy must mirror the npm tarball.
+const REPO_PRECHECK = resolve(REPO_ROOT, "scripts", "lib", "runtime-precheck.mjs");
 const KEY = "context-mode@context-mode";
 
 /**
@@ -50,12 +53,14 @@ function stagePostinstallPackage(): {
   const root = mkdtempSync(join(tmpdir(), "ctx-postinstall-pkg-"));
   cleanups.push(root);
   const scriptsDir = join(root, "scripts");
+  const scriptsLibDir = join(scriptsDir, "lib");
   const hooksDir = join(root, "hooks");
-  mkdirSync(scriptsDir, { recursive: true });
+  mkdirSync(scriptsLibDir, { recursive: true });
   mkdirSync(hooksDir, { recursive: true });
   copyFileSync(REPO_POSTINSTALL, join(scriptsDir, "postinstall.mjs"));
   copyFileSync(REPO_HEAL_IP, join(scriptsDir, "heal-installed-plugins.mjs"));
   copyFileSync(REPO_HEAL_SQLITE3, join(scriptsDir, "heal-better-sqlite3.mjs"));
+  copyFileSync(REPO_PRECHECK, join(scriptsLibDir, "runtime-precheck.mjs"));
   // postinstall imports ../hooks/normalize-hooks.mjs — provide a no-op stub
   // so the import does not crash. Real postinstall wraps the import in
   // try/catch so even a missing file is fine, but copying a stub keeps the
@@ -255,12 +260,15 @@ describe("postinstall — /ctx-upgrade tmpdir staging guard", () => {
     const parent = makeTmp("ctx-postinstall-tmproot-");
     const packageDir = join(parent, `context-mode-upgrade-${Date.now()}`);
     const scriptsDir = join(packageDir, "scripts");
+    const scriptsLibDir = join(scriptsDir, "lib");
     const hooksDir = join(packageDir, "hooks");
-    mkdirSync(scriptsDir, { recursive: true });
+    mkdirSync(scriptsLibDir, { recursive: true });
     mkdirSync(hooksDir, { recursive: true });
     copyFileSync(REPO_POSTINSTALL, join(scriptsDir, "postinstall.mjs"));
     copyFileSync(REPO_HEAL_IP, join(scriptsDir, "heal-installed-plugins.mjs"));
     copyFileSync(REPO_HEAL_SQLITE3, join(scriptsDir, "heal-better-sqlite3.mjs"));
+    // Item C1 — postinstall imports lib/runtime-precheck.mjs; mirror tarball.
+    copyFileSync(REPO_PRECHECK, join(scriptsLibDir, "runtime-precheck.mjs"));
     // Use the REAL normalize-hooks.mjs so we can detect a (buggy) mutation.
     copyFileSync(
       resolve(REPO_ROOT, "hooks", "normalize-hooks.mjs"),
@@ -522,8 +530,15 @@ describe("postinstall — Issue #564 Linux SIGSEGV hard-fail (engines.node + Nod
     expect(pkg.engines.node).not.toMatch(/>=\s*21\b/);
   });
 
-  it("postinstall.mjs hard-fails on Linux + Node < 22.5 + no Bun (process.exit(1))", () => {
-    const src = readFileSync(REPO_POSTINSTALL, "utf-8");
+  // Item C1 follow-up — the gate lives in `scripts/lib/runtime-precheck.mjs`
+  // (single source of truth shared with `scripts/preinstall.mjs`). The two
+  // surface scripts MUST both import + call it (belt-and-suspenders for
+  // installers that skip preinstall or postinstall).
+  const REPO_PRECHECK_PATH = resolve(REPO_ROOT, "scripts", "lib", "runtime-precheck.mjs");
+  const REPO_PREINSTALL_PATH = resolve(REPO_ROOT, "scripts", "preinstall.mjs");
+
+  it("runtime-precheck.mjs encodes the Linux + Node 22.5 + Bun gate", () => {
+    const src = readFileSync(REPO_PRECHECK_PATH, "utf-8");
     // The gate must reference Linux explicitly.
     expect(src).toMatch(/process\.platform\s*===\s*["']linux["']/);
     // The gate must reference the 22.5 Node-version floor (via either an
@@ -556,5 +571,37 @@ describe("postinstall — Issue #564 Linux SIGSEGV hard-fail (engines.node + Nod
     // so the GitHub thread is discoverable.
     expect(src).toMatch(/22\.5|22\.13/);
     expect(src).toMatch(/#564|issues\/564/);
+  });
+
+  // Item C1 follow-up — belt-and-suspenders. Both postinstall AND preinstall
+  // MUST import + call the helper. Some installers skip preinstall (sandboxed
+  // CI runners, some pnpm modes); others run postinstall before deps fully
+  // settle. Either gate alone is insufficient.
+  it("postinstall.mjs imports + calls runRuntimePrecheck", () => {
+    const src = readFileSync(REPO_POSTINSTALL, "utf-8");
+    expect(src).toMatch(/runRuntimePrecheck/);
+    expect(src).toMatch(/from\s+["'].*runtime-precheck/);
+    // Must actually invoke it (presence of import alone is not enough).
+    expect(src).toMatch(/runRuntimePrecheck\(/);
+  });
+
+  it("preinstall.mjs exists and calls runRuntimePrecheck", () => {
+    const src = readFileSync(REPO_PREINSTALL_PATH, "utf-8");
+    expect(src).toMatch(/runRuntimePrecheck/);
+    expect(src).toMatch(/from\s+["'].*runtime-precheck/);
+    expect(src).toMatch(/runRuntimePrecheck\(/);
+  });
+
+  it("package.json registers the preinstall hook", () => {
+    const pkg = JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8"));
+    expect(typeof pkg.scripts?.preinstall).toBe("string");
+    expect(pkg.scripts.preinstall).toMatch(/scripts\/preinstall\.mjs/);
+  });
+
+  it("npm tarball ships preinstall.mjs + runtime-precheck.mjs (files[])", () => {
+    const pkg = JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8"));
+    const files: string[] = pkg.files ?? [];
+    expect(files).toContain("scripts/preinstall.mjs");
+    expect(files).toContain("scripts/lib/runtime-precheck.mjs");
   });
 });

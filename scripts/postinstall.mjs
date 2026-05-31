@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { healBetterSqlite3Binding } from "./heal-better-sqlite3.mjs";
 import { healInstalledPlugins, healSettingsEnabledPlugins, healPluginJsonMcpServers, sweepStaleMcpJson } from "./heal-installed-plugins.mjs";
+import { runRuntimePrecheck } from "./lib/runtime-precheck.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = resolve(__dirname, "..");
@@ -39,43 +40,17 @@ const pkgRoot = resolve(__dirname, "..");
 // enforced HERE — preinstall/postinstall is the only place that can
 // `process.exit(1)` across npm/pnpm/yarn.
 //
+// Item C1 follow-up — the gate ALSO runs at preinstall via
+// scripts/preinstall.mjs so unsupported runtimes abort BEFORE the dep
+// tree downloads. Keep this postinstall call as belt-and-suspenders for
+// the small population of installers that skip preinstall (some
+// sandboxed CI runners, some pnpm modes). Single source of truth is
+// scripts/lib/runtime-precheck.mjs.
+//
 // Linux + Bun is allowed through (bun:sqlite sidesteps better-sqlite3
 // entirely). Non-Linux platforms are unaffected by the madvise bug
 // and pass through unchanged.
-{
-  const isLinux = process.platform === "linux";
-  const hasBun =
-    typeof globalThis.Bun !== "undefined" ||
-    typeof process.versions.bun === "string";
-  const [majStr, minStr] = (process.versions.node ?? "0.0.0").split(".");
-  const major = Number(majStr);
-  const minor = Number(minStr);
-  const hasModernNode =
-    Number.isFinite(major) &&
-    Number.isFinite(minor) &&
-    (major > 22 || (major === 22 && minor >= 5));
-  if (isLinux && !hasBun && !hasModernNode) {
-    process.stderr.write(
-      "\n" +
-      "context-mode: install aborted\n" +
-      "  Linux + Node " + (process.versions.node ?? "?") + " is unsupported.\n" +
-      "  context-mode requires Node.js >= 22.5 (or Bun) on Linux to avoid the\n" +
-      "  V8 madvise(MADV_DONTNEED) SIGSEGV affecting better-sqlite3 (1-4/hour).\n" +
-      "  Tracking: https://github.com/nodejs/node/issues/62515\n" +
-      "           https://github.com/mksglu/context-mode/issues/564\n" +
-      "\n" +
-      "  Fix: upgrade Node (recommended)\n" +
-      "    nvm install 22.5 && nvm use 22.5\n" +
-      "    npm install -g context-mode\n" +
-      "\n" +
-      "  Or: run under Bun\n" +
-      "    curl -fsSL https://bun.sh/install | bash\n" +
-      "    bun add -g context-mode\n" +
-      "\n",
-    );
-    process.exit(1);
-  }
-}
+runRuntimePrecheck({ phase: "postinstall" });
 
 /**
  * True when running as a real `npm install -g context-mode`. We use this

@@ -58,19 +58,21 @@ runRuntimePrecheck({ phase: "postinstall" });
  * Claude Code registry (would be very surprising during dev).
  *
  * Heuristic: npm sets `npm_config_global=true` for global installs AND the
- * package directory has no nearby `.git` (a contributor's clone always
+ * package directory does not contain a `.git` (a contributor's clone always
  * does). Both signals must agree.
+ *
+ * Item DI-5 (docs/setup-improvements.md) — bound the walk to a single
+ * level (pkgRoot only). The previous 4-level walk false-positive'd on
+ * Devbox / Docker images where `/tmp/.git` exists from bootstrap scripts:
+ * any tmpdir-staged install would skip the heal block silently. A real
+ * contributor clone always has `.git` AT pkgRoot, never several levels
+ * away, so depth 0 is sufficient. pnpm/yarn workspace-root `.git`
+ * scenarios are already eliminated by the `npm_config_global` precondition
+ * — `npm install` from a workspace does not set it.
  */
 function isGlobalInstall() {
   if (process.env.npm_config_global !== "true") return false;
-  // Walk up a few levels looking for .git — contributors always have one.
-  let dir = pkgRoot;
-  for (let i = 0; i < 4; i++) {
-    if (existsSync(join(dir, ".git"))) return false;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
+  if (existsSync(join(pkgRoot, ".git"))) return false;
   return true;
 }
 

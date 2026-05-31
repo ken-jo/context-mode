@@ -127,7 +127,7 @@ Disambiguator carve-outs already in place:
 - [x] **D1.** Move the three adapter sources of truth into one file
   - was: `_PLATFORM_ENV_VARS_RAW` + `getSessionDirSegments` + `getAdapter` switch all needed to stay in sync per adapter
   - now: `src/adapters/registry.ts` with `{ id, sessionDirSegments, load }` per platform; `detect.ts` derives both lookups from it (`getSessionDirSegments` and `getAdapter` are 1-line wrappers)
-- [ ] **D2.** Generate `detect.ts` constants from the registry at build time (esbuild plugin or codegen pre-step) — currently registry + `PLATFORM_ENV_VARS` are both hand-maintained; `PLATFORM_ENV_VARS` migration is the follow-up
+- [x] **D2.** `PLATFORM_ENV_VARS` is now derived from `ADAPTER_REGISTRY` (filtered to entries with non-empty `envVars`). `EnvVarRole` + `PlatformEnvEntry` types moved to `src/adapters/types.ts` to avoid the detect → registry → detect cycle; detect.ts re-exports them for back-compat with `src/util/project-dir.ts` and the hook layer. Registry order is now the env-detection precedence — fork-before-parent invariants for antigravity/cursor before vscode-copilot, kilo before opencode, and omp before pi are locked in by 3 new ordering assertions in `tests/adapters/registry.test.ts`. Build-time codegen ruled out as overkill; the data file is itself canonical.
 - [x] **D3.** Add a registry matrix test that fails if a new adapter directory exists without a registry entry — `tests/adapters/registry.test.ts` (7 cases)
 
 ### E. MCP-only routing best-effort honesty

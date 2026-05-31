@@ -25,9 +25,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { homedir } from "node:os";
 
-import type { PlatformId, DetectionSignal, HookAdapter } from "./types.js";
+import type { PlatformId, DetectionSignal, HookAdapter, PlatformEnvEntry } from "./types.js";
 import { CLIENT_NAME_TO_PLATFORM } from "./client-map.js";
-import { getRegistryEntry } from "./registry.js";
+import { ADAPTER_REGISTRY, getRegistryEntry } from "./registry.js";
+
+// Re-export so the existing public surface stays the same (used by
+// src/util/project-dir.ts, hooks/, and external test files).
+export type { EnvVarRole, PlatformEnvEntry } from "./types.js";
 
 /**
  * Issue #539 — fallback disambiguator. When env-var detection would
@@ -82,178 +86,23 @@ export function __seedClaudeCodePluginCacheMissForTests(): void {
 }
 
 /**
- * Tag for each PLATFORM_ENV_VARS row.
- *   - `workspace`: env var names a project/working directory. Used by
- *     `resolveProjectDir({ strictPlatform })` to form the candidate list,
- *     and by Pi's bridge to scrub foreign workspace vars on child spawn.
- *   - `identification`: env var only signals which host is running; carries
- *     no project path. PRESERVED in normal operation (some are load-bearing
- *     for hook integrations on the host that owns them, e.g. CLAUDE_PLUGIN_ROOT
- *     for Claude Code's hook context).
- *
- * Issue #545 — algorithmic env-leak fix. The split allows resolveProjectDir
- * to derive ALLOW (own workspace vars) and BAN (other platforms' workspace
- * vars) sets from a single registry, satisfying MUST-3 (15 adapters equal).
- *
- * Issue #561 — FOREIGN identification vars MUST be scrubbed when spawning a
- * child under a different host (e.g. Pi spawning context-mode child must
- * scrub Claude Code identification vars CLAUDE_CODE_ENTRYPOINT /
- * CLAUDE_PLUGIN_ROOT to prevent detectPlatform() in the child from
- * misidentifying the host as claude-code and writing Pi's data into
- * ~/.claude/context-mode/). See `foreignIdentificationEnv()` below.
- */
-export type EnvVarRole = "workspace" | "identification";
-export interface PlatformEnvEntry {
-  readonly name: string;
-  readonly role: EnvVarRole;
-  /**
-   * When `false`, this entry is NOT used as a high-confidence detection
-   * signal — only consumed by `workspaceEnvVarsFor`/`foreignWorkspaceEnv`
-   * (project-dir cascade and bridge env scrub). Use for consumer-set
-   * workspace vars that the host runtime never emits itself, so that a
-   * stale env var on an unrelated host does not misclassify the platform.
-   * Default: `true` (entry participates in detection).
-   *
-   * Issue #542 — PI_PROJECT_DIR / PI_WORKSPACE_DIR are consumer-set and
-   * MUST NOT trigger Pi detection on their own.
-   */
-  readonly detect?: boolean;
-}
-
-/**
  * High-confidence env vars per platform, checked in priority order.
- * Single source of truth — consumed by detectPlatform() below, by
- * `resolveProjectDir({ strictPlatform })` for cascade construction, and by
- * Pi's bridge env scrub. Tests also iterate this map to clear platform-
- * related env vars deterministically.
  *
- * The map shape is `Map<PlatformId, ReadonlyArray<PlatformEnvEntry>>`. Use
- * `getEnvVarNames(p)` to get just the names (legacy `string[]` shape).
+ * Single source of truth — derived from `ADAPTER_REGISTRY` per Item D2 of
+ * docs/setup-improvements.md. Order = registry order, which is the
+ * detection precedence order (forks before parents). Empty arrays are
+ * omitted from the map (openclaw, kiro fall through to the config-dir
+ * tier below).
+ *
+ * Consumed by `detectPlatform()` below, by `resolveProjectDir({
+ * strictPlatform })` for cascade construction, and by Pi's bridge env
+ * scrub. Tests also iterate this map to clear platform-related env vars
+ * deterministically.
  */
-const _PLATFORM_ENV_VARS_RAW: ReadonlyArray<readonly [PlatformId, readonly PlatformEnvEntry[]]> = [
-  // Order matters: forks listed BEFORE the fork's parent so collision
-  // detection works. Every entry verified against platform's own runtime
-  // source code (PR #376 follow-up: full audit, May 2026 — see git blame).
-  // Claude Code — verified against a live `env` dump (2026-05-11):
-  //   CLAUDE_CODE_ENTRYPOINT=cli              (set on every CC session)
-  //   CLAUDE_PLUGIN_ROOT=/Users/.../<version>  (set when a plugin is loaded)
-  //   CLAUDE_PROJECT_DIR=/Users/.../project    (set in hooks context)
-  //   CLAUDE_SESSION_ID=<uuid>                 (legacy session marker)
-  // CLAUDE_CODE_ENTRYPOINT and CLAUDE_PLUGIN_ROOT are CC-exclusive — they
-  // are the disambiguators for issue #539 (Claude Code running inside a
-  // VS Code integrated terminal that has VSCODE_PID set). They MUST be
-  // checked here so detect resolves to claude-code BEFORE falling through
-  // to vscode-copilot below.
-  ["claude-code", [
-    { name: "CLAUDE_CODE_ENTRYPOINT", role: "identification" },
-    { name: "CLAUDE_PLUGIN_ROOT",     role: "identification" },
-    { name: "CLAUDE_PROJECT_DIR",     role: "workspace" },
-    { name: "CLAUDE_SESSION_ID",      role: "identification" },
-  ]],
-  // antigravity (Electron/VSCode fork) — google-gemini/gemini-cli
-  // packages/core/src/ide/detect-ide.ts checks ANTIGRAVITY_CLI_ALIAS as the
-  // canonical Antigravity marker. Listed before vscode-copilot.
-  ["antigravity", [
-    { name: "ANTIGRAVITY_CLI_ALIAS", role: "identification" },
-  ]],
-  // cursor (VSCode fork) — listed before vscode-copilot. CURSOR_TRACE_ID has
-  // 800+ hits in major OSS detection libs (Vercel Next.js, Bun, Google
-  // gemini-cli, Nx, CrewAI). CURSOR_CWD is the documented workspace var
-  // (issue #521) — listed first so workspace cascade picks it up.
-  ["cursor", [
-    { name: "CURSOR_CWD",       role: "workspace" },
-    { name: "CURSOR_TRACE_ID",  role: "identification" },
-    { name: "CURSOR_CLI",       role: "identification" },
-  ]],
-  // kilo (OpenCode fork) — Kilo-Org/kilocode packages/opencode/src/index.ts:138 + 139
-  // sets `process.env.KILO = 1` + `process.env.KILO_PID = String(process.pid)`.
-  ["kilo", [
-    { name: "KILO",     role: "identification" },
-    { name: "KILO_PID", role: "identification" },
-  ]],
-  // opencode — sst/opencode packages/opencode/src/index.ts:108-109 sets
-  // OPENCODE=1 + OPENCODE_PID=<pid> on CLI invocations. OpenCode desktop
-  // shells also expose OPENCODE_CLIENT=desktop and OPENCODE_TERMINAL=1.
-  // OPENCODE_PROJECT_DIR is the documented workspace var (consumed by the
-  // legacy resolver cascade) — listed first so the workspace cascade picks
-  // it up under strict mode.
-  ["opencode", [
-    { name: "OPENCODE_PROJECT_DIR", role: "workspace" },
-    { name: "OPENCODE_CLIENT",      role: "identification" },
-    { name: "OPENCODE_TERMINAL",    role: "identification" },
-    { name: "OPENCODE",             role: "identification" },
-    { name: "OPENCODE_PID",         role: "identification" },
-  ]],
-  // zed — zed-industries/zed crates/terminal/src/terminal.rs sets ZED_TERM=true
-  // in `insert_zed_terminal_env()`. Google's gemini-cli uses ZED_SESSION_ID.
-  ["zed", [
-    { name: "ZED_SESSION_ID", role: "identification" },
-    { name: "ZED_TERM",       role: "identification" },
-  ]],
-  // codex — openai/codex codex-rs/core/src/exec_env.rs sets CODEX_THREAD_ID
-  // per exec; unified_exec/process_manager.rs sets CODEX_CI in CI mode.
-  ["codex", [
-    { name: "CODEX_THREAD_ID", role: "identification" },
-    { name: "CODEX_CI",        role: "identification" },
-  ]],
-  // gemini-cli — GEMINI_PROJECT_DIR per google-gemini/gemini-cli
-  // docs/hooks/index.md; GEMINI_CLI is the MCP-server sentinel.
-  ["gemini-cli", [
-    { name: "GEMINI_PROJECT_DIR", role: "workspace" },
-    { name: "GEMINI_CLI",         role: "identification" },
-  ]],
-  // vscode-copilot — VSCODE_PID + VSCODE_CWD set by microsoft/vscode bootstrap.
-  // Listed AFTER cursor and antigravity since they inherit these vars as forks.
-  ["vscode-copilot", [
-    { name: "VSCODE_CWD", role: "workspace" },
-    { name: "VSCODE_PID", role: "identification" },
-  ]],
-  // jetbrains-copilot — IDEA_INITIAL_DIRECTORY set by JetBrains launcher.
-  // (IDEA_HOME and JETBRAINS_CLIENT_ID removed — no source-line evidence.)
-  ["jetbrains-copilot", [
-    { name: "IDEA_INITIAL_DIRECTORY", role: "workspace" },
-  ]],
-  // qwen-code — QWEN_PROJECT_DIR per QwenLM/qwen-code docs/users/features/hooks.md.
-  // (QWEN_SESSION_ID removed — 0 hits in qwen-code repository.)
-  ["qwen-code", [
-    { name: "QWEN_PROJECT_DIR", role: "workspace" },
-  ]],
-  // omp (can1357/oh-my-pi). PI_CODING_AGENT_DIR is the upstream
-  // agent-dir override per `packages/utils/src/dirs.ts:193`. Listed
-  // BEFORE pi so OMP is not misclassified as Pi when both are installed.
-  ["omp", [
-    { name: "PI_CODING_AGENT_DIR", role: "workspace" },
-  ]],
-  // pi — Issue #542 marker correction. PI_PROJECT_DIR is a consumer-set
-  // var (read by src/adapters/pi/extension.ts) but is NOT auto-set by
-  // the Pi runtime — verified against
-  //   refs/platforms/oh-my-pi/packages/coding-agent/src/mcp/transports/stdio.ts:55-63
-  // (env passthrough only, no synthesis). The Pi runtime DOES set
-  // PI_CONFIG_DIR (config dir override), PI_SESSION_FILE (active session
-  // path), and PI_COMPILED (binary build marker). PI_CODING_AGENT_DIR is
-  // owned by OMP above; keep it there.
-  //
-  // Issue #545 — PI_WORKSPACE_DIR / PI_PROJECT_DIR are workspace vars set
-  // by Pi's bridge so the resolver picks them up under strict mode.
-  // PI_WORKSPACE_DIR comes first (extension-set, freshest) before
-  // PI_PROJECT_DIR (user override) per registry-author cascade order.
-  ["pi", [
-    // Issue #545 — workspace vars set by Pi's bridge so resolveProjectDir
-    // under strict mode picks them up. detect=false because PI_*_DIR are
-    // consumer-set and must NOT misclassify a non-Pi host as Pi (#542).
-    { name: "PI_WORKSPACE_DIR", role: "workspace",      detect: false },
-    { name: "PI_PROJECT_DIR",   role: "workspace",      detect: false },
-    { name: "PI_CONFIG_DIR",    role: "identification" },
-    { name: "PI_SESSION_FILE",  role: "identification" },
-    { name: "PI_COMPILED",      role: "identification" },
-  ]],
-  // openclaw — removed (runtime never sets OPENCLAW_HOME or OPENCLAW_CLI;
-  // detection falls through to ~/.openclaw/ config-dir tier below).
-  // kiro — not listed (no auto-set process env vars; ~/.kiro/ config-dir tier).
-];
-
 export const PLATFORM_ENV_VARS: ReadonlyMap<PlatformId, readonly PlatformEnvEntry[]> = new Map(
-  _PLATFORM_ENV_VARS_RAW,
+  ADAPTER_REGISTRY
+    .filter((entry) => entry.envVars.length > 0)
+    .map((entry) => [entry.id, entry.envVars] as const),
 );
 
 /**

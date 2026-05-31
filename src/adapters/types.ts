@@ -436,3 +436,42 @@ export interface DetectionSignal {
   /** How it was detected. */
   reason: string;
 }
+
+/**
+ * Tag for each env var entry on a platform.
+ *   - `workspace`: env var names a project/working directory. Used by
+ *     `resolveProjectDir({ strictPlatform })` to form the candidate list,
+ *     and by Pi's bridge to scrub foreign workspace vars on child spawn.
+ *   - `identification`: env var only signals which host is running; carries
+ *     no project path. PRESERVED in normal operation (some are load-bearing
+ *     for hook integrations on the host that owns them, e.g. CLAUDE_PLUGIN_ROOT
+ *     for Claude Code's hook context).
+ *
+ * Issue #545 — algorithmic env-leak fix. The split allows resolveProjectDir
+ * to derive ALLOW (own workspace vars) and BAN (other platforms' workspace
+ * vars) sets from a single registry, satisfying MUST-3 (15 adapters equal).
+ *
+ * Issue #561 — FOREIGN identification vars MUST be scrubbed when spawning a
+ * child under a different host (e.g. Pi spawning context-mode child must
+ * scrub Claude Code identification vars CLAUDE_CODE_ENTRYPOINT /
+ * CLAUDE_PLUGIN_ROOT to prevent detectPlatform() in the child from
+ * misidentifying the host as claude-code and writing Pi's data into
+ * ~/.claude/context-mode/). See `foreignIdentificationEnv()` in detect.ts.
+ */
+export type EnvVarRole = "workspace" | "identification";
+export interface PlatformEnvEntry {
+  readonly name: string;
+  readonly role: EnvVarRole;
+  /**
+   * When `false`, this entry is NOT used as a high-confidence detection
+   * signal — only consumed by `workspaceEnvVarsFor`/`foreignWorkspaceEnv`
+   * (project-dir cascade and bridge env scrub). Use for consumer-set
+   * workspace vars that the host runtime never emits itself, so that a
+   * stale env var on an unrelated host does not misclassify the platform.
+   * Default: `true` (entry participates in detection).
+   *
+   * Issue #542 — PI_PROJECT_DIR / PI_WORKSPACE_DIR are consumer-set and
+   * MUST NOT trigger Pi detection on their own.
+   */
+  readonly detect?: boolean;
+}

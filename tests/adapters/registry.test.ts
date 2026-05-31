@@ -94,4 +94,34 @@ describe("adapter registry", () => {
       expect(entry.sessionDirSegments.length).toBeGreaterThan(0);
     }
   });
+
+  // Item D2 — envVars field is part of the contract.
+  it("envVars is a typed array for every entry (empty allowed)", () => {
+    for (const entry of ADAPTER_REGISTRY) {
+      expect(Array.isArray(entry.envVars)).toBe(true);
+      for (const v of entry.envVars) {
+        expect(typeof v.name).toBe("string");
+        expect(["workspace", "identification"]).toContain(v.role);
+      }
+    }
+  });
+
+  it("antigravity + cursor are listed BEFORE vscode-copilot (fork-precedence)", () => {
+    const idx = (id: string) => ADAPTER_REGISTRY.findIndex((e) => e.id === id);
+    const antigravity = idx("antigravity");
+    const cursor = idx("cursor");
+    const vsc = idx("vscode-copilot");
+    expect(antigravity).toBeLessThan(vsc);
+    expect(cursor).toBeLessThan(vsc);
+  });
+
+  it("kilo is listed BEFORE opencode (kilo is the opencode fork)", () => {
+    const idx = (id: string) => ADAPTER_REGISTRY.findIndex((e) => e.id === id);
+    expect(idx("kilo")).toBeLessThan(idx("opencode"));
+  });
+
+  it("omp is listed BEFORE pi (OMP-only marker disambiguates)", () => {
+    const idx = (id: string) => ADAPTER_REGISTRY.findIndex((e) => e.id === id);
+    expect(idx("omp")).toBeLessThan(idx("pi"));
+  });
 });

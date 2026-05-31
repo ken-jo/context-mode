@@ -29,7 +29,9 @@ import * as p from "@clack/prompts";
 import color from "picocolors";
 
 import { detectPlatform, getAdapter } from "./adapters/detect.js";
+import { REGISTERED_PLATFORM_IDS } from "./adapters/registry.js";
 import type { PlatformId } from "./adapters/types.js";
+import { parseJsonc } from "./util/jsonc.js";
 
 export interface SetupOptions {
   /** Explicit platform; bypasses detection. */
@@ -79,38 +81,6 @@ export interface SetupResult {
  * JSONC, so even a valid commented file tripped it. Backing up before reset
  * (like the codex adapter) makes the data loss recoverable + visible.
  */
-/**
- * JSONC-tolerant comment + trailing-comma stripper (copy of server.ts's
- * stripJsonComments — duplicated rather than imported to avoid pulling the
- * MCP server's top-level boot side-effects into the CLI bundle). String-aware:
- * never strips `//` or `/* *​/` that appear inside a JSON string.
- */
-function stripJsonComments(str: string): string {
-  let out = "";
-  let inString = false;
-  let escaped = false;
-  let inBlockComment = false;
-  for (let i = 0; i < str.length; i++) {
-    const c = str[i];
-    const next = str[i + 1];
-    if (inBlockComment) {
-      if (c === "*" && next === "/") { inBlockComment = false; i++; }
-      continue;
-    }
-    if (escaped) { out += c; escaped = false; continue; }
-    if (c === "\\") { out += c; escaped = inString; continue; }
-    if (c === '"') { inString = !inString; out += c; continue; }
-    if (!inString && c === "/" && next === "/") {
-      while (i < str.length && str[i] !== "\n") i++;
-      if (i < str.length) out += "\n";
-      continue;
-    }
-    if (!inString && c === "/" && next === "*") { inBlockComment = true; i++; continue; }
-    out += c;
-  }
-  return out.replace(/,(\s*[}\]])/g, "$1");
-}
-
 function readJsonForMerge(
   path: string,
   dryRun: boolean,
@@ -118,18 +88,14 @@ function readJsonForMerge(
   if (!existsSync(path)) return { root: {} };
   let raw: string;
   try { raw = readFileSync(path, "utf-8"); } catch { return { root: {} }; }
-  // Strict parse first, then a JSONC-tolerant parse (comments + trailing
-  // commas). VS Code mcp.json is officially JSONC, so a VALID commented file
-  // must merge in place — preserving sibling servers — not get reset. Only a
+  // JSONC-tolerant parse (comments + trailing commas) via the shared util.
+  // VS Code mcp.json is officially JSONC, so a VALID commented file must
+  // merge in place — preserving sibling servers — not get reset. Only a
   // genuinely unparseable file is backed up + replaced. (Loop-1 finding: the
   // strict-only parse treated valid JSONC as broken and dropped siblings.)
-  for (const candidate of [raw, stripJsonComments(raw)]) {
-    try {
-      const parsed = JSON.parse(candidate) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return { root: parsed as Record<string, unknown> };
-      }
-    } catch { /* try next candidate, then back up */ }
+  const parsed = parseJsonc<unknown>(raw);
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    return { root: parsed as Record<string, unknown> };
   }
   const backedUp = `${path}.broken`;
   if (!dryRun) {
@@ -500,11 +466,12 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
       color.dim(`  (${detection.confidence} confidence — ${detection.reason})`),
   );
 
-  // Unknown / undetected platform — don't print a green "Already configured"
-  // having written nothing. Tell the user how to target a supported host.
-  // (Loop-1 finding.)
-  if (platform === "unknown") {
-    p.log.warn(color.yellow("Could not detect a supported agent CLI."));
+  // Unknown / undetected / INVALID-explicit-arg platform — don't print a
+  // green "Already configured" having written nothing. Catches both an
+  // undetected host AND an invalid explicit arg like `setup foobar` (which
+  // would otherwise fall through with confidence "high"). (Loop-1/Loop-2.)
+  if (!REGISTERED_PLATFORM_IDS.has(platform)) {
+    p.log.warn(color.yellow(`Not a supported agent CLI: "${platform}".`));
     p.note(
       "Pass an explicit platform, e.g. `context-mode setup gemini-cli`.\n" +
         "Supported: claude-code, gemini-cli, vscode-copilot, cursor, qwen-code,\n" +
@@ -528,7 +495,19 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
   // Default scope: vscode-copilot and cursor are project-first because their
   // canonical install path is per-project. Others are user-scoped — see
   // defaultScopeFor() (single source of truth shared with refreshMcpRegistration).
-  const scope: "user" | "project" = opts.scope ?? defaultScopeFor(platform);
+  let scope: "user" | "project" = opts.scope ?? defaultScopeFor(platform);
+
+  // VS Code has no `~/.vscode/mcp.json` — MCP servers are workspace-scoped
+  // (.vscode/mcp.json) or live in the VS Code user-profile dir (not a simple
+  // home file). An explicit `--scope user` would write a file VS Code never
+  // loads, so force project scope with a warning. (Loop-2 finding.)
+  if (platform === "vscode-copilot" && scope === "user") {
+    p.log.warn(
+      color.yellow("VS Code MCP is workspace-scoped — ignoring --scope user.") +
+        color.dim(" Writing project .vscode/mcp.json (VS Code has no ~/.vscode/mcp.json)."),
+    );
+    scope = "project";
+  }
 
   const changes: string[] = [];
   const warnings: string[] = [];

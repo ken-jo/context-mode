@@ -143,7 +143,10 @@ if (isGlobalInstall()) {
 // ── 0. Self-heal Layer 3: Backward symlink for stale registry (anthropics/claude-code#46915) ──
 // When this install completes, installed_plugins.json may still point to an old
 // non-existent path. Create a symlink from that old path → our new directory.
-try {
+// Gated on isGlobalInstall() — a contributor's local `npm install` must never
+// symlink their HOME plugin-cache entries to a clone's pkgRoot. (Loop-2 finding;
+// matches the gating already on section -1.)
+if (isGlobalInstall()) try {
   const ipPath = resolve(resolveClaudeConfigDir(), "plugins", "installed_plugins.json");
   if (existsSync(ipPath)) {
     const ip = JSON.parse(readFileSync(ipPath, "utf-8"));

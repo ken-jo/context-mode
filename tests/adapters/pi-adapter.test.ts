@@ -87,9 +87,11 @@ describe("PiAdapter — Pi platform adapter", () => {
       expect(eventsPath).not.toContain(".claude");
     });
 
-    it("settings path is ~/.pi/settings.json", () => {
+    it("settings path is ~/.pi/agent/settings.json", () => {
+      // Pi's global agent state lives under ~/.pi/agent/ (earendil-works/pi
+      // docs/extensions.md) — the `agent` segment is the Loop-2 / DI-7 fix.
       expect(adapter.getSettingsPath()).toBe(
-        resolve(homedir(), ".pi", "settings.json"),
+        resolve(homedir(), ".pi", "agent", "settings.json"),
       );
     });
 

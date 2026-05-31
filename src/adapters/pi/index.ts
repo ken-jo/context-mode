@@ -119,7 +119,11 @@ export class PiAdapter extends BaseAdapter implements HookAdapter {
   // ── Configuration ──────────────────────────────────────
 
   getSettingsPath(): string {
-    return resolve(homedir(), ".pi", "settings.json");
+    // Pi's global agent state lives under ~/.pi/agent/ (earendil-works/pi
+    // packages/coding-agent/docs/extensions.md, re-verified by the loop). The
+    // missing `agent` segment is the DI-7 / Loop-2 fix — the prior
+    // ~/.pi/settings.json is not where Pi looks.
+    return resolve(homedir(), ".pi", "agent", "settings.json");
   }
 
   getInstructionFiles(): string[] {
@@ -154,18 +158,22 @@ export class PiAdapter extends BaseAdapter implements HookAdapter {
         status: "pass",
         message:
           "Pi hooks are wired via the context-mode Pi extension " +
-          "(~/.pi/extensions/context-mode/), not via JSON-stdio.",
+          "(global ~/.pi/agent/extensions/context-mode/ or project " +
+          ".pi/extensions/context-mode/), not via JSON-stdio.",
       },
     ];
   }
 
   checkPluginRegistration(): DiagnosticResult {
-    // Pi registers extensions by directory presence; the version-sync
-    // script writes ~/.pi/extensions/context-mode/package.json. We treat
-    // that file as the registration signal.
+    // Pi registers extensions by directory presence. Pi's GLOBAL
+    // auto-discovery dir is ~/.pi/agent/extensions/ (NOT ~/.pi/extensions/) —
+    // earendil-works/pi docs/extensions.md, re-verified by the loop (DI-7 /
+    // Loop-2 fix; the prior path omitted the `agent` segment so doctor
+    // false-negatived a correctly-installed global extension).
     const pkgPath = resolve(
       homedir(),
       ".pi",
+      "agent",
       "extensions",
       "context-mode",
       "package.json",
@@ -199,6 +207,7 @@ export class PiAdapter extends BaseAdapter implements HookAdapter {
       const pkgPath = resolve(
         homedir(),
         ".pi",
+        "agent",
         "extensions",
         "context-mode",
         "package.json",

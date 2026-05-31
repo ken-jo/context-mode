@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
 import { BaseAdapter } from "../base.js";
+import { parseJsonc } from "../../util/jsonc.js";
 
 import type {
   HookAdapter,
@@ -115,9 +116,11 @@ export class ZedAdapter extends BaseAdapter implements HookAdapter {
   }
 
   readSettings(): Record<string, unknown> | null {
+    // Zed's settings.json is officially JSONC (comments + trailing commas),
+    // so a strict JSON.parse false-fails a valid file. (Loop-2 finding.)
     try {
       const raw = readFileSync(this.getSettingsPath(), "utf-8");
-      return JSON.parse(raw);
+      return (parseJsonc<Record<string, unknown>>(raw)) ?? null;
     } catch {
       return null;
     }
@@ -143,10 +146,12 @@ export class ZedAdapter extends BaseAdapter implements HookAdapter {
   }
 
   checkPluginRegistration(): DiagnosticResult {
-    // Check for context-mode in context_servers section of settings.json
+    // Check for context-mode in context_servers section of settings.json.
+    // Zed settings.json is JSONC — parse tolerantly so a valid commented file
+    // is not reported as unreadable. (Loop-2 finding.)
     try {
       const raw = readFileSync(this.getSettingsPath(), "utf-8");
-      const settings = JSON.parse(raw);
+      const settings = parseJsonc<Record<string, unknown>>(raw) ?? {};
       const hasContextServers = settings.context_servers !== undefined;
       const hasContextMode = raw.includes("context-mode");
 

@@ -388,18 +388,34 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
 
     const plugins = settings.plugins as Record<string, unknown> | undefined;
     const entries = plugins?.entries as Record<string, unknown> | undefined;
+    const inEntries =
+      !!entries && Object.keys(entries).some((k) => k.includes("context-mode"));
 
-    if (entries) {
-      const hasPlugin = Object.keys(entries).some((k) => k.includes("context-mode"));
-      if (hasPlugin) {
-        return {
-          check: "Plugin registration",
-          status: "pass",
-          message: "context-mode found in plugins.entries",
-        };
-      }
+    // The plugin only delivers ctx_* tools when the MCP sidecar is also
+    // registered under mcp.servers — a plugins.entries-only config loads the
+    // plugin but surfaces no tools. Require BOTH so doctor doesn't green-light
+    // a tool-less install. (Loop-2 finding.)
+    const mcp = settings.mcp as Record<string, unknown> | undefined;
+    const mcpServers = mcp?.servers as Record<string, unknown> | undefined;
+    const inMcp =
+      !!mcpServers && Object.keys(mcpServers).some((k) => k.includes("context-mode"));
+
+    if (inEntries && inMcp) {
+      return {
+        check: "Plugin registration",
+        status: "pass",
+        message: "context-mode found in plugins.entries + mcp.servers",
+      };
     }
-
+    if (inEntries && !inMcp) {
+      return {
+        check: "Plugin registration",
+        status: "fail",
+        message:
+          "context-mode in plugins.entries but missing from mcp.servers — plugin loads but no ctx_* tools reach the agent",
+        fix: "context-mode upgrade",
+      };
+    }
     return {
       check: "Plugin registration",
       status: "fail",
@@ -442,7 +458,7 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
 
   // ── Upgrade ────────────────────────────────────────────
 
-  configureAllHooks(_pluginRoot: string): string[] {
+  configureAllHooks(pluginRoot: string): string[] {
     const settings = this.readSettings() ?? {};
     const changes: string[] = [];
 
@@ -471,6 +487,15 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
       }
     }
 
+    // plugins.allow — mirror register-openclaw-config.mjs so the gateway
+    // actually permits the plugin to load (idempotent unshift).
+    if (!Array.isArray(plugins.allow)) plugins.allow = [];
+    const allow = plugins.allow as string[];
+    if (!allow.includes("context-mode")) {
+      allow.unshift("context-mode");
+      changes.push("Added context-mode to plugins.allow");
+    }
+
     // Optionally set context engine slot
     if (!plugins.slots) {
       plugins.slots = {};
@@ -483,6 +508,31 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
       changes.push(
         `Context engine already set to "${slots.contextEngine}" — not overwriting`,
       );
+    }
+
+    // Register the MCP sidecar — WITHOUT this, OpenClaw loads the plugin but
+    // its ctx_* tools never reach the agent's tool list (confirmed against
+    // OpenClaw 2026.4.22; see scripts/lib/register-openclaw-config.mjs). The
+    // upgrade path previously omitted this, so `context-mode upgrade` produced
+    // a hook-only config with zero callable tools that doctor green-lit.
+    // (Loop-2 finding.) Mirror the installer's exact `${pluginRoot}/server.bundle.mjs`
+    // form so install + upgrade stay byte-identical (idempotent).
+    if (!settings.mcp || typeof settings.mcp !== "object") settings.mcp = {};
+    const mcp = settings.mcp as Record<string, unknown>;
+    if (!mcp.servers || typeof mcp.servers !== "object") mcp.servers = {};
+    const servers = mcp.servers as Record<string, unknown>;
+    const serverBundle = `${pluginRoot}/server.bundle.mjs`;
+    const existing = servers["context-mode"] as Record<string, unknown> | undefined;
+    const needsWrite =
+      !existing ||
+      existing.command !== "node" ||
+      !Array.isArray(existing.args) ||
+      (existing.args as unknown[])[0] !== serverBundle;
+    if (needsWrite) {
+      // Preserve user-added fields (env/cwd/timeout); own only command+args.
+      const base = existing && typeof existing === "object" ? existing : {};
+      servers["context-mode"] = { ...base, command: "node", args: [serverBundle] };
+      changes.push(`Registered mcp.servers.context-mode → ${serverBundle}`);
     }
 
     this.writeSettings(settings);

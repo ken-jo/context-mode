@@ -643,6 +643,13 @@ async function doctor(): Promise<number> {
       color.yellow("Plugin enabled: WARN") +
         ` — ${pluginCheck.message}`,
     );
+    // Item A5 — one-line remediation: most WARN/FAIL here means the user
+    // never ran a setup flow for this host. Point them at the command that
+    // closes the loop without forcing them to dig through README per-platform.
+    p.log.info(
+      color.dim("  Try: ") + color.cyan("context-mode setup") +
+        color.dim(`   # auto-register hooks + mcpServers for ${adapter.name}`),
+    );
   }
 
   // ── Issue #613 — proactive Tier C absolute-path detection ───────────

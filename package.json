@@ -79,10 +79,13 @@
     ".openclaw-plugin",
     "openclaw.plugin.json",
     "start.mjs",
+    "scripts/preinstall.mjs",
     "scripts/postinstall.mjs",
     "scripts/heal-better-sqlite3.mjs",
     "scripts/heal-installed-plugins.mjs",
     "scripts/plugin-cache-integrity.mjs",
+    "scripts/lib/runtime-precheck.mjs",
+    ".npmrc",
     "README.md",
     "LICENSE"
   ],
@@ -96,6 +99,7 @@
     "prepublishOnly": "npm run build",
     "dev": "npx tsx src/server.ts",
     "setup": "npx tsx src/cli.ts setup",
+    "setup:check": "npx tsx src/cli.ts setup --check",
     "doctor": "npx tsx src/cli.ts doctor",
     "typecheck": "tsc --noEmit",
     "pretest": "npm run build",
@@ -106,6 +110,7 @@
     "test:compare": "npx tsx tests/context-comparison.ts",
     "test:ecosystem": "npx tsx tests/ecosystem-benchmark.ts",
     "install:openclaw": "node -e \"if(process.platform==='win32'){console.error('OpenClaw install requires bash (Git Bash or WSL)');process.exit(1)}else{require('child_process').execSync('bash scripts/install-openclaw-plugin.sh',{stdio:'inherit'})}\"",
+    "preinstall": "node scripts/preinstall.mjs",
     "postinstall": "node scripts/postinstall.mjs"
   },
   "dependencies": {

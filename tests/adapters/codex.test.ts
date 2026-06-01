@@ -7,6 +7,24 @@ import { join, resolve } from "node:path";
 import { CodexAdapter, probeCodexCliVersion } from "../../src/adapters/codex/index.js";
 import { resolveSessionDbPath, SessionDB } from "../../src/session/db.js";
 
+function writeCodexPluginManifest(pluginRoot: string): void {
+  const pluginDir = join(pluginRoot, ".codex-plugin");
+  mkdirSync(pluginDir, { recursive: true });
+  writeFileSync(join(pluginDir, "hooks.json"), JSON.stringify({
+    hooks: new CodexAdapter().generateHookConfig(pluginRoot),
+  }, null, 2), "utf-8");
+}
+
+function pluginEnabledSettings(extra = ""): string {
+  return `[features]
+hooks = true
+
+[plugins."context-mode@context-mode"]
+enabled = true
+
+${extra}`;
+}
+
 describe("CodexAdapter", () => {
   let adapter: CodexAdapter;
 
@@ -554,6 +572,73 @@ describe("CodexAdapter", () => {
       expect(written.hooks.Stop).toHaveLength(1);
       expect(written.hooks.Stop[0]?.hooks[0]?.command).toBe("context-mode hook codex stop");
     });
+
+    it("removes context-mode user hooks when the Codex plugin owns hooks", () => {
+      const pluginRoot = join(codexDir, "plugin-root");
+      writeCodexPluginManifest(pluginRoot);
+      writeFileSync(join(codexDir, "config.toml"), pluginEnabledSettings(), "utf-8");
+      writeFileSync(hooksPath, JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            { matcher: "Bash", hooks: [{ type: "command", command: "node /opt/homebrew/lib/node_modules/oh-my-codex/dist/scripts/codex-native-hook.js" }] },
+            { matcher: "local_shell|shell|ctx_execute|mcp__", hooks: [{ type: "command", command: "context-mode hook codex pretooluse" }] },
+          ],
+          SessionStart: [
+            { matcher: "startup|resume", hooks: [{ type: "command", command: "node /opt/homebrew/lib/node_modules/oh-my-codex/dist/scripts/codex-native-hook.js" }] },
+            { hooks: [{ type: "command", command: "context-mode hook codex sessionstart" }] },
+          ],
+        },
+      }, null, 2), "utf-8");
+
+      const changes = adapter.configureAllHooks(pluginRoot);
+
+      const written = JSON.parse(readFileSync(hooksPath, "utf-8")) as {
+        hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>>;
+      };
+      expect(written.hooks.PreToolUse).toHaveLength(1);
+      expect(written.hooks.PreToolUse[0]?.hooks[0]?.command).toContain("oh-my-codex");
+      expect(written.hooks.SessionStart).toHaveLength(1);
+      expect(written.hooks.SessionStart[0]?.hooks[0]?.command).toContain("oh-my-codex");
+      expect(JSON.stringify(written)).not.toContain("context-mode hook codex");
+      expect(changes.some((change) => change.includes("Removed duplicate context-mode user hooks"))).toBe(true);
+    });
+
+    it("removes standalone MCP registration and stale user-hook trust state in plugin mode", () => {
+      const pluginRoot = join(codexDir, "plugin-root");
+      const stateHooksPath = hooksPath.replace(/\//g, "\\");
+      writeCodexPluginManifest(pluginRoot);
+      writeFileSync(hooksPath, JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            { matcher: "Bash", hooks: [{ type: "command", command: "node /opt/homebrew/lib/node_modules/oh-my-codex/dist/scripts/codex-native-hook.js" }] },
+          ],
+        },
+      }, null, 2), "utf-8");
+      writeFileSync(join(codexDir, "config.toml"), pluginEnabledSettings(`
+[mcp_servers.context-mode]
+command = "npx"
+args = ["-y", "context-mode"]
+
+[mcp_servers.context-mode.tools.ctx_execute]
+approval_mode = "approve"
+
+[hooks.state."${stateHooksPath}:pre_tool_use:0:0"]
+trusted_hash = "sha256:live"
+
+[hooks.state."${stateHooksPath}:pre_tool_use:1:0"]
+trusted_hash = "sha256:stale"
+`), "utf-8");
+
+      const changes = adapter.configureAllHooks(pluginRoot);
+
+      const settings = readFileSync(join(codexDir, "config.toml"), "utf-8");
+      expect(settings).not.toContain("[mcp_servers.context-mode]");
+      expect(settings).not.toContain("[mcp_servers.context-mode.tools.ctx_execute]");
+      expect(settings).toContain(`${stateHooksPath}:pre_tool_use:0:0`);
+      expect(settings).not.toContain(`${stateHooksPath}:pre_tool_use:1:0`);
+      expect(changes).toContain("Removed standalone Codex context-mode MCP registration");
+      expect(changes.some((change) => change.includes("stale Codex hook trust"))).toBe(true);
+    });
   });
 
   describe("validateHooks", () => {
@@ -586,6 +671,57 @@ describe("CodexAdapter", () => {
       expect(results.map((result) => result.check)).toContain("PreCompact hook");
       expect(results.map((result) => result.check)).toContain("UserPromptSubmit hook");
       expect(results.map((result) => result.check)).toContain("Stop hook");
+    });
+
+    it("passes via Codex plugin hooks and warns when user config still has context-mode hooks", () => {
+      const pluginRoot = join(codexDir, "plugin-root");
+      writeCodexPluginManifest(pluginRoot);
+      writeFileSync(join(codexDir, "config.toml"), pluginEnabledSettings(), "utf-8");
+      writeFileSync(hooksPath, JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            { matcher: "local_shell|shell|ctx_execute|mcp__", hooks: [{ type: "command", command: "context-mode hook codex pretooluse" }] },
+          ],
+        },
+      }, null, 2), "utf-8");
+
+      const results = adapter.validateHooks(pluginRoot);
+
+      const preTool = results.find((result) => result.check === "PreToolUse hook");
+      expect(preTool?.status).toBe("pass");
+      expect(preTool?.message).toMatch(/context-mode@context-mode plugin/);
+      const duplicate = results.find((result) => result.check === "PreToolUse plugin duplicate");
+      expect(duplicate?.status).toBe("warn");
+      expect(duplicate?.message).toMatch(/configured in both/);
+      expect(results.some((result) => result.check === "PostToolUse hook" && result.status === "pass")).toBe(true);
+      expect(results.some((result) => result.check === "Hooks config" && result.status === "fail")).toBe(false);
+    });
+
+    it("passes with missing user hooks.json when the Codex plugin owns hooks", () => {
+      const pluginRoot = join(codexDir, "plugin-root");
+      writeCodexPluginManifest(pluginRoot);
+      writeFileSync(join(codexDir, "config.toml"), pluginEnabledSettings(), "utf-8");
+
+      const results = adapter.validateHooks(pluginRoot);
+
+      expect(results.some((result) => result.check === "Hooks config" && result.status === "fail")).toBe(false);
+      expect(results.some((result) => result.check === "Stop hook" && result.status === "pass")).toBe(true);
+    });
+
+    it("warns when plugin mode still has standalone npx MCP registration", () => {
+      const pluginRoot = join(codexDir, "plugin-root");
+      writeCodexPluginManifest(pluginRoot);
+      writeFileSync(join(codexDir, "config.toml"), pluginEnabledSettings(`
+[mcp_servers.context-mode]
+command = "npx"
+args = ["-y", "context-mode"]
+`), "utf-8");
+
+      const results = adapter.validateHooks(pluginRoot);
+
+      const duplicate = results.find((result) => result.check === "Standalone MCP duplicate");
+      expect(duplicate?.status).toBe("warn");
+      expect(duplicate?.fix).toMatch(/context-mode upgrade/);
     });
 
     it("warns instead of failing when only PreCompact is missing", () => {

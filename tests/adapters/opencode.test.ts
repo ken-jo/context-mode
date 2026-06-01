@@ -6,6 +6,17 @@ import { join, parse, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { OpenCodeAdapter } from "../../src/adapters/opencode/index.js";
 
+/**
+ * Matches the file:// pointer `configureAllHooks` writes — a file:// URL ending
+ * at this package's opencode plugin build. We assert the SHAPE rather than an
+ * exact URL on purpose: the path the adapter writes is drive-prefixed on Windows
+ * (`file:///C:/…`), and because these tests run setup in a spawned subprocess
+ * (cwd under the OS temp dir) while the expectation is computed in the test
+ * process (cwd at the repo), a bare "/tmp/…" plugin root resolves against a
+ * different drive in each (`C:` vs `D:`) — so a literal compare is non-portable.
+ */
+const POINTER_RE = /^file:\/\/\/.+\/build\/adapters\/opencode\/plugin\.js$/;
+
 function env(home: string) {
   const root = parse(home).root;
   return {
@@ -222,7 +233,7 @@ describe("OpenCodeAdapter", () => {
       });
       expect(() => readFileSync(resolve(dir, "opencode.json"), "utf-8")).toThrow();
       expect(JSON.parse(readFileSync(file, "utf-8"))).toEqual({
-        plugin: ["file:///tmp/plugin/build/adapters/opencode/plugin.js"],
+        plugin: [expect.stringMatching(POINTER_RE)],
       });
 
       rmSync(root, { recursive: true, force: true });
@@ -263,7 +274,7 @@ describe("OpenCodeAdapter", () => {
       expect(JSON.parse(run.stdout)).toContain("Removed legacy context-mode MCP block (plugin-native tools)");
       expect(JSON.parse(readFileSync(file, "utf-8"))).toEqual({
         mcp: { other: { type: "local", command: ["other"] } },
-        plugin: ["file:///tmp/plugin/build/adapters/opencode/plugin.js"],
+        plugin: [expect.stringMatching(POINTER_RE)],
       });
 
       rmSync(root, { recursive: true, force: true });
@@ -298,9 +309,40 @@ describe("OpenCodeAdapter", () => {
       // remains (so the host imports the single source of truth, no re-fetch).
       expect(cfg.plugin).toEqual([
         "other-plugin",
-        "file:///opt/ngm/context-mode/build/adapters/opencode/plugin.js",
+        expect.stringMatching(POINTER_RE),
       ]);
       expect(cfg.plugin).not.toContain("context-mode");
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    it("configureAllHooks does NOT drop sibling plugins whose names merely contain 'context-mode' (#755 review)", () => {
+      const root = mkdtempSync(join(tmpdir(), "opencode-adapter-"));
+      const dir = join(root, "project");
+      const home = join(root, "home");
+      const conf = join(home, ".config", "opencode");
+      const file = join(conf, "opencode.json");
+      const src = resolve(process.cwd(), "src", "adapters", "opencode", "index.ts");
+      const tsx = resolve(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
+      mkdirSync(dir, { recursive: true });
+      mkdirSync(conf, { recursive: true });
+      // A sibling plugin whose name CONTAINS the substring "context-mode" must
+      // survive — only the exact bare name / our own file:// pointer is replaced.
+      writeFileSync(file, JSON.stringify({ plugin: ["@acme/context-mode-helper", "context-mode"] }, null, 2) + "\n");
+      const run = spawnSync(
+        process.execPath,
+        [
+          tsx,
+          "-e",
+          `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify(a.configureAllHooks('/opt/ngm/context-mode')))`,
+        ],
+        { cwd: dir, env: env(home), encoding: "utf-8" },
+      );
+      expect(run.status).toBe(0);
+      const cfg = JSON.parse(readFileSync(file, "utf-8"));
+      expect(cfg.plugin).toEqual([
+        "@acme/context-mode-helper",
+        expect.stringMatching(POINTER_RE),
+      ]);
       rmSync(root, { recursive: true, force: true });
     });
 
@@ -479,7 +521,7 @@ describe("OpenCodeAdapter", () => {
         expect(JSON.parse(run.stdout)).toEqual(["Added context-mode to plugin array"]);
         // Should write back to .jsonc (same file it read)
         expect(JSON.parse(readFileSync(join(dir, "opencode.jsonc"), "utf-8"))).toEqual({
-          plugin: ["file:///tmp/plugin/build/adapters/opencode/plugin.js"],
+          plugin: [expect.stringMatching(POINTER_RE)],
         });
         rmSync(root, { recursive: true, force: true });
       });
@@ -536,7 +578,7 @@ describe("OpenCodeAdapter", () => {
         expect(JSON.parse(run.stdout)).toEqual(["Added context-mode to plugin array"]);
         expect(() => readFileSync(resolve(dir, "opencode.json"), "utf-8")).toThrow();
         expect(JSON.parse(readFileSync(file, "utf-8"))).toEqual({
-          plugin: ["file:///tmp/plugin/build/adapters/opencode/plugin.js"],
+          plugin: [expect.stringMatching(POINTER_RE)],
         });
 
         rmSync(root, { recursive: true, force: true });

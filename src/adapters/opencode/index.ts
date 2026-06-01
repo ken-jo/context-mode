@@ -23,6 +23,27 @@ function stripJsonComments(str: string): string {
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/,(\s*[}\]])/g, "$1");
 }
+
+/**
+ * True only for context-mode's OWN plugin-array entry: the bare npm name
+ * (optionally version-tagged) or a `file://` spec ending at this package's
+ * opencode plugin build. Precise on purpose — a plain substring test would also
+ * match (and, in `configureAllHooks`, DELETE) unrelated sibling plugins whose
+ * names merely contain "context-mode" (e.g. "my-context-mode-ext"). Windows-safe:
+ * backslashes are normalised before the suffix comparison.
+ */
+function isContextModePluginEntry(spec: unknown): boolean {
+  if (typeof spec !== "string") return false;
+  if (spec === "context-mode" || spec.startsWith("context-mode@")) return true;
+  if (!spec.startsWith("file://")) return false;
+  try {
+    return fileURLToPath(spec)
+      .replace(/\\/g, "/")
+      .endsWith("/build/adapters/opencode/plugin.js");
+  } catch {
+    return false;
+  }
+}
 import {
   readFileSync,
   writeFileSync,
@@ -471,7 +492,7 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
       const plugins = (settings?.plugin ?? []) as unknown[];
       const pointer = plugins.find(
         (p): p is string =>
-          typeof p === "string" && p.startsWith("file:") && p.includes("context-mode"),
+          typeof p === "string" && p.startsWith("file://") && isContextModePluginEntry(p),
       );
       if (pointer) {
         const pkgRoot = resolve(dirname(fileURLToPath(pointer)), "..", "..", "..");
@@ -521,12 +542,12 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
       resolve(pluginRoot, "build", "adapters", "opencode", "plugin.js"),
     ).href;
 
-    // Drop any prior context-mode entry (bare npm name OR a stale file://
-    // pointer — both contain "context-mode") and append the current pointer.
+    // Drop any prior context-mode entry — the bare npm name OR a stale file://
+    // pointer to this package's plugin build — and append the current pointer.
+    // Matching is exact (isContextModePluginEntry), so unrelated plugins whose
+    // names merely contain "context-mode" are left untouched.
     const current = (settings.plugin ?? []) as unknown[];
-    const kept = current.filter(
-      (p) => !(typeof p === "string" && p.includes("context-mode")),
-    );
+    const kept = current.filter((p) => !isContextModePluginEntry(p));
     const next = [...kept, pointer];
     const unchanged =
       current.length === next.length && current.every((p, i) => p === next[i]);
@@ -587,7 +608,7 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
    */
   private hasContextModePlugin(settings: Record<string, unknown>): boolean {
     const plugins = settings.plugin;
-    return Array.isArray(plugins) && plugins.some((p: unknown) => typeof p === "string" && p.includes("context-mode"));
+    return Array.isArray(plugins) && plugins.some(isContextModePluginEntry);
   }
 
   private hasLegacyContextModeMcp(settings: Record<string, unknown>): boolean {

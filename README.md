@@ -39,7 +39,7 @@ Context Mode is an MCP server that solves all four sides of this problem:
 
 1. **Context Saving** — Sandbox tools keep raw data out of the context window. 315 KB becomes 5.4 KB. 98% reduction.
 2. **Session Continuity** — Every file edit, git operation, task, error, and user decision is tracked in SQLite. When the conversation compacts, context-mode doesn't dump this data back into context — it indexes events into FTS5 and retrieves only what's relevant via BM25 search. The model picks up exactly where you left off. If you don't `--continue`, previous session data is deleted immediately — a fresh session means a clean slate.
-3. **Think in Code** — The LLM should program the analysis, not compute it. Instead of reading 50 files into context to count functions, the agent writes a script that does the counting and `console.log()`s only the result. One script replaces ten tool calls and saves 100x context. This is a mandatory paradigm across all 15 platforms: stop treating the LLM as a data processor, treat it as a code generator.
+3. **Think in Code** — The LLM should program the analysis, not compute it. Instead of reading 50 files into context to count functions, the agent writes a script that does the counting and `console.log()`s only the result. One script replaces ten tool calls and saves 100x context. This is a mandatory paradigm across all 16 platforms: stop treating the LLM as a data processor, treat it as a code generator.
 
    ```js
    // Before: 47 × Read() = 700 KB.  After: 1 × ctx_execute() = 3.6 KB.
@@ -106,11 +106,13 @@ All checks should show `[x]`. The doctor validates runtimes, hooks, FTS5, and pl
 |---|---|
 | `/context-mode:ctx-stats` | Context savings — per-tool breakdown, tokens consumed, savings ratio. |
 | `/context-mode:ctx-doctor` | Diagnostics — runtimes, hooks, FTS5, plugin registration, versions. |
+| `/context-mode:ctx-index` | Index a local file or directory into the persistent FTS5 knowledge base. |
+| `/context-mode:ctx-search` | Search previously indexed content. |
 | `/context-mode:ctx-upgrade` | Pull latest, rebuild, migrate cache, fix hooks. |
 | `/context-mode:ctx-purge` | Permanently delete all indexed content from the knowledge base. |
 | `/context-mode:ctx-insight` | Personal analytics dashboard — 90 metrics, 37 insight patterns, 4 composite scores (productivity, quality, delegation, context health) across 23 event categories. Opens a local web UI. |
 
-> **Note:** Slash commands are a Claude Code plugin feature. On other platforms, type `ctx stats`, `ctx doctor`, `ctx upgrade`, or `ctx insight` in the chat — the model calls the MCP tool automatically. See [Utility Commands](#utility-commands).
+> **Note:** Slash commands are a Claude Code plugin feature. On other platforms, type `ctx stats`, `ctx doctor`, `ctx index`, `ctx search`, `ctx upgrade`, or `ctx insight` in the chat — the model calls the MCP tool automatically. See [Utility Commands](#utility-commands).
 
 **Status line (optional):** Claude Code's plugin manifest cannot declare a status line, so this is a one-time manual edit to `~/.claude/settings.json`:
 
@@ -646,6 +648,9 @@ The Codex plugin manifest provides MCP via `.codex-plugin/mcp.json`, skills via
 
    [mcp_servers.context-mode]
    command = "context-mode"
+
+   [mcp_servers.context-mode.env]
+   CONTEXT_MODE_PLATFORM = "codex"
    ```
 
 3. Create `$CODEX_HOME/hooks.json` (or `~/.codex/hooks.json` when `CODEX_HOME` is unset):
@@ -683,6 +688,83 @@ The Codex plugin manifest provides MCP via `.codex-plugin/mcp.json`, skills via
 **Verify:** Start a session and type `ctx stats` to verify MCP. To verify hook routing, confirm Codex lists/trusts the context-mode plugin hooks, then run a command that matches the routing rules.
 
 **Routing:** MCP tools work after plugin install. Plugin hook routing is active only when `hooks` and `plugin_hooks` are enabled and Codex trusts the plugin hook commands. Manual hook routing is active when `$CODEX_HOME/hooks.json` or `~/.codex/hooks.json` is configured. The `AGENTS.md` file provides routing instructions for model awareness.
+
+</details>
+
+<details>
+<summary><strong>Kimi Code</strong> — MCP + hooks (TOML config, same JSON wire protocol as Codex)</summary>
+
+**Prerequisites:** Node.js >= 22.5 (or Bun), Kimi Code CLI installed.
+
+1. Install context-mode:
+
+   ```bash
+   npm install -g context-mode
+   ```
+
+2. Add context-mode as an MCP server. Add to `~/.kimi-code/mcp.json`:
+
+   ```json
+   {
+     "mcpServers": {
+       "context-mode": {
+         "command": "context-mode",
+         "args": []
+       }
+     }
+   }
+   ```
+
+3. Add hooks to `~/.kimi-code/config.toml`:
+
+   ```toml
+   [[hooks]]
+   event = "PreToolUse"
+   matcher = "Bash|Shell|Read|Edit|Write|WebFetch|Agent|ctx_execute|ctx_execute_file|ctx_batch_execute|ctx_fetch_and_index|ctx_search|ctx_index|mcp__"
+   command = "context-mode hook kimi pretooluse"
+   timeout = 30
+
+   [[hooks]]
+   event = "PostToolUse"
+   command = "context-mode hook kimi posttooluse"
+   timeout = 30
+
+   [[hooks]]
+   event = "SessionStart"
+   command = "context-mode hook kimi sessionstart"
+   timeout = 30
+
+   [[hooks]]
+   event = "PreCompact"
+   command = "context-mode hook kimi precompact"
+   timeout = 30
+
+   [[hooks]]
+   event = "UserPromptSubmit"
+   command = "context-mode hook kimi userpromptsubmit"
+   timeout = 30
+
+   [[hooks]]
+   event = "Stop"
+   command = "context-mode hook kimi stop"
+   timeout = 30
+   ```
+
+4. Restart Kimi Code CLI and verify MCP with `ctx stats`.
+
+   > **Note:** Kimi Code uses the same JSON stdin/stdout wire protocol as Codex, but accepts `additionalContext`, `updatedInput`, and `permissionDecision: "ask"` in PreToolUse responses (Codex rejects these). The kimi hook normalizes `ContentPart[]` prompt arrays to strings for downstream extractors.
+
+5. (Optional) Copy the routing instructions file for your project:
+
+   ```bash
+   cp "$(npm root -g)/context-mode/configs/codex/AGENTS.md" ./AGENTS.md
+   ```
+
+   Or for global use:
+
+   ```bash
+   CM_ROOT="$(npm root -g)/context-mode"; cp "$CM_ROOT/configs/codex/AGENTS.md" ~/.kimi-code/AGENTS.md
+   ```
 
 </details>
 
@@ -755,8 +837,7 @@ The Codex plugin manifest provides MCP via `.codex-plugin/mcp.json`, skills via
    npm install -g context-mode
    ```
 
-2. Add to `~/.gemini/antigravity/mcp_config.json` for Antigravity Editor
-   (`~/.gemini/antigravity-cli/mcp_config.json` when running Antigravity CLI):
+2. Add to `~/.gemini/antigravity/mcp_config.json`:
 
    ```json
    {
@@ -1304,6 +1385,8 @@ See [`docs/platform-support.md`](docs/platform-support.md) for the full capabili
 ```
 ctx stats       → context savings, call counts, session report
 ctx doctor      → diagnose runtimes, hooks, FTS5, versions
+ctx index       → index a local file or directory for later search
+ctx search      → search previously indexed content
 ctx upgrade     → update from GitHub, rebuild, reconfigure hooks
 ctx purge       → permanently delete all indexed content from the knowledge base
 ctx insight     → personal analytics dashboard (opens local web UI)
@@ -1313,6 +1396,8 @@ ctx insight     → personal analytics dashboard (opens local web UI)
 
 ```bash
 context-mode doctor
+context-mode index . --source project:my-app
+context-mode search "authentication middleware" --source project:my-app
 context-mode upgrade
 context-mode insight          # opens analytics dashboard in browser
 bash scripts/ctx-debug.sh    # full diagnostic report for bug reports
@@ -1320,7 +1405,7 @@ bash scripts/ctx-debug.sh    # full diagnostic report for bug reports
 
 The debug script collects OS info, runtime versions, better-sqlite3 status, adapter detection, config files (redacted), hook validation, FTS5/SQLite test, executor test, process check, session databases, and environment variables into a single pasteable markdown report.
 
-Works on **all platforms**. On Claude Code, slash commands (`/ctx-stats`, `/ctx-doctor`, `/ctx-upgrade`, `/ctx-purge`, `/ctx-insight`) are also available.
+Works on **all platforms**. On Claude Code, slash commands (`/ctx-stats`, `/ctx-doctor`, `/ctx-index`, `/ctx-search`, `/ctx-upgrade`, `/ctx-purge`, `/ctx-insight`) are also available.
 
 ## Benchmarks
 

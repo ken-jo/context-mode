@@ -196,6 +196,17 @@ export const ADAPTER_REGISTRY: ReadonlyArray<AdapterRegistryEntry> = [
     ],
     load: async () => new (await import("./qwen-code/index.js")).QwenCodeAdapter(),
   },
+  // kimi (Moonshot Kimi Code) — no host env-var marker; detected via the
+  // ~/.kimi-code/ config dir tier and MCP clientInfo ("kimi-code"/"Kimi Code",
+  // see client-map.ts). Registry entry so getAdapter("kimi") loads KimiAdapter
+  // instead of falling through to ClaudeCodeAdapter (the issue #473 data-leak
+  // class). Merged from upstream's kimi support into the registry SOT.
+  {
+    id: "kimi",
+    sessionDirSegments: [".kimi-code"],
+    envVars: [],
+    load: async () => new (await import("./kimi/index.js")).KimiAdapter(),
+  },
   // omp (can1357/oh-my-pi). PI_CODING_AGENT_DIR is the upstream agent-dir
   // override per packages/utils/src/dirs.ts:193. Listed BEFORE pi so OMP
   // is not misclassified as Pi when both are installed.

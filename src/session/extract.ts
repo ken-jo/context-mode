@@ -1053,6 +1053,35 @@ function extractIntent(message: string): SessionEvent[] {
 }
 
 /**
+ * Category: session goal (objective).
+ *
+ * Captures the user's stated objective so it survives compaction and resume —
+ * unlike `intent`, which stores only the coarse mode (investigate/implement)
+ * and discards the goal text. Triggered by the `/goal <text>` command or an
+ * explicit `goal:` / `objective:` marker, so the FULL goal text is preserved
+ * (priority 4 = critical in the DB eviction contract) and restored at the top
+ * of the resume snapshot.
+ * Without this, a `/goal` directive is lost across compaction/resume.
+ */
+const GOAL_DIRECTIVE_PATTERN =
+  /^(?:\/goal\s+|(?:goal|objective)\s*:\s*)(.+)$/is;
+
+function extractGoal(message: string): SessionEvent[] {
+  const trimmed = message.trim();
+  if (!trimmed) return [];
+  const match = trimmed.match(GOAL_DIRECTIVE_PATTERN);
+  if (!match) return [];
+  const goalText = match[1].trim();
+  if (!goalText) return [];
+  return [{
+    type: "goal",
+    category: "goal",
+    data: safeString(goalText),
+    priority: 4,
+  }];
+}
+
+/**
  * Category 25: blocked-on
  * Detect when work is blocked on something, or when a blocker is resolved.
  *
@@ -1341,6 +1370,7 @@ export function extractUserEvents(message: string): SessionEvent[] {
     events.push(...extractUserDecision(message));
     events.push(...extractRole(message));
     events.push(...extractIntent(message));
+    events.push(...extractGoal(message));
     events.push(...extractBlocker(message));
     events.push(...extractData(message));
 

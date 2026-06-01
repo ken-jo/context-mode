@@ -240,6 +240,34 @@ function removeTomlSections(
   return { text: out.join(newline), removed };
 }
 
+function parseTomlQuotedString(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('"') || !trimmed.endsWith('"')) return null;
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return typeof parsed === "string" ? parsed : null;
+  } catch {
+    // Codex hook-state keys are TOML quoted keys, not guaranteed JSON strings.
+    // Preserve Windows backslashes such as C:\Users\... even when they are not
+    // valid JSON escapes, while still handling the common escaped quote/slash.
+    let out = "";
+    let escaping = false;
+    for (const ch of trimmed.slice(1, -1)) {
+      if (escaping) {
+        out += ch === '"' || ch === "\\" ? ch : `\\${ch}`;
+        escaping = false;
+      } else if (ch === "\\") {
+        escaping = true;
+      } else {
+        out += ch;
+      }
+    }
+    if (escaping) out += "\\";
+    return out;
+  }
+}
+
 // ─────────────────────────────────────────────────────────
 // Adapter implementation
 // ─────────────────────────────────────────────────────────
@@ -999,12 +1027,8 @@ export class CodexAdapter extends BaseAdapter implements HookAdapter {
       const prefix = "hooks.state.";
       if (!sectionName.startsWith(prefix)) return false;
 
-      let key: string;
-      try {
-        key = JSON.parse(sectionName.slice(prefix.length)) as string;
-      } catch {
-        return false;
-      }
+      const key = parseTomlQuotedString(sectionName.slice(prefix.length));
+      if (key === null) return false;
 
       const normalized = this.normalizeCommand(key);
       const parts = normalized.split(":");

@@ -1,4 +1,4 @@
-import { buildNodeCommand, parseNodeCommand } from "../types.js";
+import { buildHookRuntimeCommand, parseNodeCommand } from "../types.js";
 
 /**
  * adapters/claude-code/hooks — Claude Code hook definitions and matchers.
@@ -162,7 +162,7 @@ export function isContextModeHook(
 export function buildHookCommand(hookType: HookType, pluginRoot?: string): string {
   if (pluginRoot) {
     const scriptName = HOOK_SCRIPTS[hookType];
-    return buildNodeCommand(`${pluginRoot}/hooks/${scriptName}`);
+    return buildHookRuntimeCommand(`${pluginRoot}/hooks/${scriptName}`);
   }
   return `context-mode hook claude-code ${hookType.toLowerCase()}`;
 }

@@ -175,6 +175,25 @@ export const KIRO_OPTS = {
   sessionIdEnv: undefined,    // No session ID env var — uses ppid fallback
 };
 
+/** Kimi Code CLI platform options.
+ *
+ * `KIMI_CODE_HOME` is documented at
+ *   refs/platforms/kimi-code/docs/zh/configuration/env-vars.md:11-21
+ *   refs/platforms/kimi-code/docs/en/configuration/env-vars.md:9-21
+ * and is read by MoonshotAI's own first-party plugins
+ *   refs/platforms/kimi-code/plugins/official/kimi-datasource/bin/
+ *     kimi-datasource.mjs:207-210
+ * so context-mode must honour it too — otherwise relocated Kimi installs
+ * keep the user's data root at `$KIMI_CODE_HOME` while context-mode keeps
+ * its session DB stranded at `~/.kimi-code/context-mode/sessions/`.
+ */
+export const KIMI_OPTS = {
+  configDir: ".kimi-code",
+  configDirEnv: "KIMI_CODE_HOME",
+  projectDirEnv: undefined,   // Kimi Code passes cwd in hook stdin, no env var
+  sessionIdEnv: undefined,    // Uses session_id from hook stdin or ppid fallback
+};
+
 /** JetBrains Copilot platform options. */
 export const JETBRAINS_OPTS = {
   configDir: ".config/JetBrains",
@@ -212,15 +231,86 @@ export function parseStdin(raw) {
 
 /**
  * Read all of stdin as a string (event-based, cross-platform safe).
+ *
+ * Idle-timeout semantics (override via env `CONTEXT_MODE_HOOK_STDIN_IDLE_MS`,
+ * default 1500 ms):
+ * - EOF before any data \u2192 resolve("")  \u2014 the original well-behaved path.
+ * - EOF after data       \u2192 resolve(buffer) with BOM strip (#139 \u2014 Cursor on
+ *                          Windows can emit a leading U+FEFF that crashes
+ *                          downstream JSON.parse).
+ * - Idle with 0 bytes    \u2192 resolve("")  \u2014 covers hosts that hold the pipe open
+ *                          without ever closing it (issue #639 \u2014 Bun re-exec
+ *                          EOF path) so the hook still terminates.
+ * - Idle with > 0 bytes  \u2192 reject(Error) \u2014 partial data after a stall MUST NOT
+ *                          be silently truncated, otherwise downstream
+ *                          JSON.parse corrupts on large `tool_response`
+ *                          payloads (issue #242 \u2014 Gemini AfterTool >1MB).
+ *                          Visible non-zero exit is correct here; the host
+ *                          surfaces the failure in its hook diagnostics.
  */
 export function readStdin() {
   return new Promise((resolve, reject) => {
     let data = "";
+    const idleMs = Number(process.env.CONTEXT_MODE_HOOK_STDIN_IDLE_MS || 1500);
+    let done = false;
+    let timer;
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      process.stdin.removeListener("data", onData);
+      process.stdin.removeListener("end", onEnd);
+      process.stdin.removeListener("error", onError);
+      try { process.stdin.pause(); } catch {}
+      try { process.stdin.destroy?.(); } catch {}
+    };
+    const resolveBuffer = () => {
+      if (done) return;
+      done = true;
+      cleanup();
+      // Preserves #139 BOM strip \u2014 applies on both EOF and idle-empty paths.
+      resolve(data.replace(/^\uFEFF/, ""));
+    };
+    const rejectIdle = () => {
+      if (done) return;
+      done = true;
+      cleanup();
+      reject(new Error(
+        `stdin idle for ${idleMs}ms with ${data.length} bytes buffered`,
+      ));
+    };
+    const onIdle = () => {
+      // Zero-buffer idle = host never wrote anything (issue #639). Resolve
+      // empty so the hook can no-op. Non-zero buffer = partial data, which
+      // must reject to avoid silent JSON.parse corruption (issue #242).
+      if (data.length === 0) {
+        resolveBuffer();
+      } else {
+        rejectIdle();
+      }
+    };
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(onIdle, idleMs);
+      timer.unref?.();
+    };
+    const onData = (chunk) => {
+      data += chunk;
+      arm();
+    };
+    const onEnd = () => resolveBuffer();
+    const onError = (error) => {
+      if (done) return;
+      done = true;
+      cleanup();
+      reject(error);
+    };
+
     process.stdin.setEncoding("utf-8");
-    process.stdin.on("data", (chunk) => { data += chunk; });
-    process.stdin.on("end", () => resolve(data.replace(/^\uFEFF/, "")));
-    process.stdin.on("error", reject);
+    process.stdin.on("data", onData);
+    process.stdin.on("end", onEnd);
+    process.stdin.on("error", onError);
     process.stdin.resume();
+    arm();
   });
 }
 

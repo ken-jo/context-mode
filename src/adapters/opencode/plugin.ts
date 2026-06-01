@@ -407,9 +407,10 @@ async function createContextModePlugin(ctx: PluginContext) {
             ? (inputSchema._def.shape as () => unknown)()
             : {};
 
-      const argsForHost = platform === "kilo"
-        ? zod3ShapeToV4(shape as Record<string, unknown>)
-        : shape as Record<string, unknown>;
+      // Both KiloCode and recent OpenCode bundle Zod v4 in-host; v3 schemas
+      // crash with `n._zod.def` undefined. Gate widened from kilo-only (#632)
+      // because every consumer of this file is an OpenCode-family host.
+      const argsForHost = zod3ShapeToV4(shape as Record<string, unknown>);
 
       tools[registered.name] = {
         description: String(config.description ?? ""),

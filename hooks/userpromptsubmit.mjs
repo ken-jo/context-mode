@@ -77,8 +77,20 @@ await runHook(async () => {
         workspaceRoots: Array.isArray(input.workspace_roots) ? input.workspace_roots : [],
         lastKnownProjectDir: savedLastKnown || lastKnownProjectDir,
       });
-      for (let i = 0; i < userEvents.length; i++) {
-        db.insertEvent(sessionId, userEvents[i], "UserPromptSubmit", userAttributions[i]);
+      // v1.0.160: route through wire so prompt-derived events (decision /
+       // role / intent / data extractions) reach the platform. Previously
+       // they only landed in local SessionDB → dashboard's prompt-flow
+       // insights stayed at 0.
+      if (userEvents.length > 0) {
+        attributeAndInsertEvents(
+          db,
+          sessionId,
+          userEvents,
+          input,
+          projectDir,
+          "UserPromptSubmit",
+          resolveProjectAttributions,
+        );
       }
 
       db.close();

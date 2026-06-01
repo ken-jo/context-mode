@@ -21,6 +21,8 @@
  * No external dependencies — pure node:child_process + JSON line frames.
  */
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { detectRuntimes } from "../../runtime.js";
 import { foreignWorkspaceEnv, foreignIdentificationEnv } from "../detect.js";
@@ -452,6 +454,39 @@ export class MCPStdioClient {
     // detects pi correctly.
     for (const banned of foreignIdentificationEnv("pi")) {
       delete childEnv[banned];
+    }
+    // Issue #561 regression fix: Pi detection vars are empty after
+    // foreign env scrubbing (CLAUDE_CODE_ENTRYPOINT / CLAUDE_PLUGIN_ROOT
+    // are deleted by the ban above). Without PI_CONFIG_DIR,
+    // detectPlatform() finds zero Pi identification vars and falls
+    // through to Claude Code default — stats land in ~/.claude/ instead
+    // of ~/.pi/. Set PI_CONFIG_DIR from the child's HOME env var so the
+    // child resolves to Pi correctly. (Use childEnv.HOME, not homedir(),
+    // because homedir() reads getpwent() which ignores our HOME override
+    // in test environments.)
+    //
+    // Cross-OS PI_CONFIG_DIR rescue (PR #741 follow-up):
+    //   1. If the parent already exported PI_CONFIG_DIR, trust it
+    //      verbatim — Pi's launcher owns that path and may pin it to
+    //      a non-default location (corporate setup, CI, etc.).
+    //   2. POSIX: ~/.pi (HOME-rooted).
+    //   3. Windows: probe both %USERPROFILE%\.pi (rare native install)
+    //      AND %APPDATA%\.pi (XDG-on-Windows, Pi's documented Windows
+    //      layout). Without the APPDATA fallback, every Pi-on-Windows
+    //      install silently drops back to the Claude Code default and
+    //      Pi's sessions write into the wrong directory.
+    if (!childEnv.PI_CONFIG_DIR) {
+      const home = childEnv.HOME ?? childEnv.USERPROFILE ?? childEnv.HOMEPATH;
+      const appData = childEnv.APPDATA; // Windows-only, undefined on POSIX
+      const candidates: string[] = [];
+      if (home) candidates.push(join(home, ".pi"));
+      if (appData) candidates.push(join(appData, ".pi"));
+      for (const candidate of candidates) {
+        if (existsSync(candidate)) {
+          childEnv.PI_CONFIG_DIR = candidate;
+          break;
+        }
+      }
     }
     this._spawnEnv = childEnv;
     this.child = spawn(runtime, [this.serverScript], {

@@ -1,5 +1,6 @@
 import { execFileSync, execSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { JS_RUNTIMES } from "./adapters/types.js";
 
 /**
  * Allowlist for SHELL env override. Only POSIX shells + Windows shells permit
@@ -25,6 +26,12 @@ export function isAllowlistedShell(shellPath: string): boolean {
   return ALLOWED_SHELL_BASENAMES.test(runtimeBasename(shellPath));
 }
 
+function isWindowsWslBash(shellPath: string): boolean {
+  const lower = shellPath.toLowerCase().replace(/\//g, "\\");
+  return /\\windows\\(?:system32|sysnative)\\bash\.exe$/.test(lower) ||
+    /\\microsoft\\windowsapps\\bash\.exe$/.test(lower);
+}
+
 export type Language =
   | "javascript"
   | "typescript"
@@ -47,7 +54,7 @@ export interface RuntimeInfo {
 }
 
 export interface RuntimeMap {
-  javascript: string;
+  javascript: string | null;
   typescript: string | null;
   python: string | null;
   shell: string;
@@ -222,26 +229,83 @@ function getVersion(cmd: string, args: string[] = ["--version"]): string {
   }
 }
 
+/**
+ * Resolve the JavaScript runtime used by PolyglotExecutor.
+ *
+ * PR #190 (f69b0d2) made `process.execPath` the default so snap-Node
+ * envs would not re-invoke the snap wrapper via PATH. That assumed
+ * `process.execPath` always points at a JS runtime — true on Node,
+ * tsx, and snap-Node, but FALSE when context-mode runs in-process
+ * inside a bun-compiled self-contained binary (OpenCode, Kilo, …).
+ * In those hosts, `process.execPath` resolves to `opencode.exe` /
+ * `opencode` (NOT node), and spawning that with a `.js` argument
+ * triggers the yargs "Failed to change directory" error (#731).
+ *
+ * Fix: gate `process.execPath` on the existing `JS_RUNTIMES`
+ * allowlist (single source of truth — same set used by
+ * `buildNodeCommand()` in src/adapters/types.ts since PR #708). When
+ * the execPath basename is not a known JS runtime, fall back to a
+ * PATH-resolved `node`. If neither is reachable, return `null` and
+ * let ctx_doctor surface an actionable error.
+ *
+ * The cross-OS guard is the allowlist itself — NOT a `win32` check.
+ * OpenCode ships self-contained binaries on macOS and Linux too,
+ * and the bug reproduces identically there.
+ */
+export function resolveJavascriptRuntime(
+  bun: string | null,
+  deps: {
+    execPath?: string;
+    commandExists?: (cmd: string) => boolean;
+  } = {},
+): string | null {
+  if (bun) return bun;
+
+  const execPath = deps.execPath ?? process.execPath;
+  const cmdExists = deps.commandExists ?? commandExists;
+
+  // Cross-OS basename: split on either separator, strip optional `.exe`.
+  const base = execPath
+    .split(/[\\/]/)
+    .pop()!
+    .replace(/\.exe$/i, "");
+
+  if (JS_RUNTIMES.has(base)) {
+    // Real JS runtime (node, bun, deno) — preserves #190 snap-Node fix
+    // because the snap wrapper's binary is literally named `node`.
+    return execPath;
+  }
+
+  // Host binary (opencode/kilo/etc.) — fall back to node on PATH.
+  if (cmdExists("node")) return "node";
+
+  // No usable runtime — doctor + summary must handle null gracefully.
+  return null;
+}
+
 export function detectRuntimes(): RuntimeMap {
   const hasBun = bunExists();
   const bun = hasBun ? bunCommand() : null;
 
   // Honor SHELL env var when it points at a real binary AND the basename is
-  // an allowlisted shell. Lets users with non-standard setups (WSL, custom
-  // bash, msys2) pin context-mode to their preferred shell.
+  // an allowlisted shell. Lets users with non-standard setups (custom bash,
+  // msys2, pwsh) pin context-mode to their preferred shell.
   //
   // Allowlist (PR #401 ops review): basename must match
-  // /^(bash|sh|zsh|dash|pwsh|cmd)(\.exe)?$/. Without this guard, an attacker
+  // /^(bash|sh|zsh|dash|pwsh|powershell|cmd)(\.exe)?$/. Without this guard, an attacker
   // who controls SHELL (e.g., supply-chain compromise of a profile script)
   // could redirect the executor to /usr/bin/python or any arbitrary binary.
   const userShell = process.env.SHELL;
-  const shellOverride = userShell && existsSync(userShell) && isAllowlistedShell(userShell)
+  const isWin = process.platform === "win32";
+  const shellOverride = userShell &&
+    existsSync(userShell) &&
+    isAllowlistedShell(userShell) &&
+    !(isWin && isWindowsWslBash(userShell))
     ? userShell
     : null;
-  const isWin = process.platform === "win32";
 
   return {
-    javascript: bun ?? process.execPath,
+    javascript: resolveJavascriptRuntime(bun),
     typescript: bun
       ? bun
       : commandExists("tsx")
@@ -278,13 +342,143 @@ export function hasBunRuntime(): boolean {
   return bunExists();
 }
 
+/**
+ * Resolved JS runtime for hook spawn commands. `path` is the absolute (or
+ * bare-name on POSIX where PATH resolution is reliable) binary path.
+ * `isBun` is true only when we successfully probed a Bun ≥1.0 install.
+ */
+export interface HookRuntime {
+  readonly path: string;
+  readonly isBun: boolean;
+}
+
+/**
+ * Cached result of {@link resolveHookRuntime}. Populated on first call so the
+ * relatively expensive `bun --version` probe runs at most once per process.
+ * Reset via {@link resetHookRuntimeCache} (test-only).
+ */
+let _hookRuntimeCache: HookRuntime | null = null;
+
+/**
+ * Reset the hook-runtime resolution cache. Test-only — production code
+ * should never call this. Vitest mocks `node:child_process`/`node:fs`
+ * per-test, so the per-process cache from a previous test would otherwise
+ * mask the mock and yield the host's real bun/node detection result.
+ */
+export function resetHookRuntimeCache(): void {
+  _hookRuntimeCache = null;
+}
+
+/**
+ * Parse a `bun --version` stdout string and return true when the version is
+ * ≥1.0.0. Anything that doesn't match `MAJOR.MINOR.PATCH` (with optional
+ * pre-release suffix) returns false — we refuse to trust runtimes whose
+ * version we can't read because the failure mode is silent miscompare
+ * (e.g. a banner line getting interpreted as "0.0.0").
+ */
+function bunVersionAtLeast1(versionOutput: string): boolean {
+  const trimmed = versionOutput.trim();
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(trimmed);
+  if (!m) return false;
+  const major = Number(m[1]);
+  return Number.isFinite(major) && major >= 1;
+}
+
+/**
+ * Resolve the JS runtime to use for spawning hook scripts (issue #738).
+ *
+ * Returns Bun when:
+ *   - a bun binary is located via {@link bunCommand} (already handles the
+ *     Windows .cmd shim trap from #506 + absolute path fallbacks), AND
+ *   - `bun --version` exits 0 within the probe timeout, AND
+ *   - the reported semver major is ≥1.
+ *
+ * Returns Node (`process.execPath`) on every other path — missing bun,
+ * version probe failure, version <1, malformed version banner. Silent
+ * fallback: never throws, never logs to stderr (a noisy log would clutter
+ * the same MCP boot output that #719 tightened up).
+ *
+ * Result is cached at module load so the cost is amortised across every
+ * hook command emission for the lifetime of the process. The cache also
+ * keeps the behaviour deterministic — if the user `brew uninstall bun`
+ * mid-session, the cached resolution stays valid for that session and the
+ * next MCP boot re-detects.
+ *
+ * Why bun ≥1.0 instead of "any bun":
+ *   - Bun 0.x had multiple ESM/module-resolution regressions that broke
+ *     dynamic `import()` inside hooks (and our hooks do ~7 dynamic imports
+ *     in `pretooluse.mjs`).
+ *   - 1.0 ships stable npm-compat that our better-sqlite3-adjacent code
+ *     relies on indirectly (hooks share `ensure-deps.mjs` which is
+ *     bun-safe past 1.0 but not 0.x).
+ *
+ * NOT used by:
+ *   - `buildNodeCommand` — kept on `process.execPath` for openclaw doctor /
+ *     upgrade hints which must invoke the better-sqlite3-loading CLI on
+ *     Node (#543: bun cannot dlopen better-sqlite3's prebuilt .node).
+ *   - `ensure-deps.mjs` — separate path, must stay on Node for the same
+ *     reason.
+ *   - `ctx_upgrade` — separate path, must stay on Node for the same reason.
+ */
+export function resolveHookRuntime(): HookRuntime {
+  if (_hookRuntimeCache) return _hookRuntimeCache;
+  const nodeFallback: HookRuntime = { path: process.execPath, isBun: false };
+  try {
+    if (!bunExists()) {
+      _hookRuntimeCache = nodeFallback;
+      return _hookRuntimeCache;
+    }
+    const bun = bunCommand();
+    // Re-use the same probe shape as getVersion (POSIX execFile, Windows
+    // execSync quoted string for DEP0190 compliance).
+    let versionOutput: string;
+    try {
+      if (process.platform === "win32") {
+        const out = execSync(`"${bun}" --version`, {
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+          timeout: 5000,
+        });
+        versionOutput = String(out);
+      } else {
+        const out = execFileSync(bun, ["--version"], {
+          encoding: "utf-8",
+          stdio: ["pipe", "pipe", "pipe"],
+          timeout: 5000,
+        });
+        versionOutput = String(out);
+      }
+    } catch {
+      _hookRuntimeCache = nodeFallback;
+      return _hookRuntimeCache;
+    }
+    if (!bunVersionAtLeast1(versionOutput)) {
+      _hookRuntimeCache = nodeFallback;
+      return _hookRuntimeCache;
+    }
+    _hookRuntimeCache = { path: bun, isBun: true };
+    return _hookRuntimeCache;
+  } catch {
+    _hookRuntimeCache = nodeFallback;
+    return _hookRuntimeCache;
+  }
+}
+
 export function getRuntimeSummary(runtimes: RuntimeMap): string {
   const lines: string[] = [];
   const bunPreferred = runtimes.javascript?.endsWith("bun") ?? false;
 
-  lines.push(
-    `  JavaScript: ${runtimes.javascript} (${getVersion(runtimes.javascript)})${bunPreferred ? " ⚡" : ""}`,
-  );
+  if (runtimes.javascript) {
+    lines.push(
+      `  JavaScript: ${runtimes.javascript} (${getVersion(runtimes.javascript)})${bunPreferred ? " ⚡" : ""}`,
+    );
+  } else {
+    // #731: host binary (opencode/kilo) AND no PATH-resolvable node.
+    // Surface actionable guidance instead of rendering literal `null`.
+    lines.push(
+      `  JavaScript: not available (install node or bun — host process is not a JS runtime)`,
+    );
+  }
 
   if (runtimes.typescript) {
     lines.push(
@@ -370,6 +564,14 @@ export function buildCommand(
 ): string[] {
   switch (language) {
     case "javascript":
+      if (!runtimes.javascript) {
+        // #731: in-process plugin host (opencode/kilo binary) AND no
+        // PATH-resolvable node. Refuse early with an actionable error
+        // instead of spawning the host binary (the original bug shape).
+        throw new Error(
+          "No JavaScript runtime available. Install Node.js or Bun on PATH (the host process is not itself a JS runtime).",
+        );
+      }
       return BUN_BASENAME.test(runtimeBasename(runtimes.javascript))
         ? [runtimes.javascript, "run", filePath]
         : [runtimes.javascript, filePath];
@@ -408,9 +610,16 @@ export function buildCommand(
           return [runtimes.shell, "-c", `source '${escaped}'`];
         }
         if (shellName.includes("powershell") || shellName.includes("pwsh")) {
-          return [runtimes.shell, "-File", filePath];
+          // Windows PowerShell defaults to Restricted when no execution policy
+          // is configured. Use process-scoped Bypass so generated temp scripts
+          // run without changing machine/user policy.
+          return [runtimes.shell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filePath];
         }
-        // cmd.exe and others: direct file (cmd reads .cmd association safely).
+        const shellBase = shellName.split(/[\\/]/).pop() ?? shellName;
+        if (shellBase === "cmd" || shellBase === "cmd.exe") {
+          return [runtimes.shell, "/d", "/s", "/c", filePath];
+        }
+        // Other Windows shells: direct file.
       }
       return [runtimes.shell, filePath];
     }

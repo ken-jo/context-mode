@@ -37,6 +37,8 @@ type SearchRow = {
   label: string;
   rank: number;
   highlighted: string;
+  /** Attribution session_id (empty string for legacy unattributed chunks). */
+  session_id: string;
 };
 
 import type { IndexResult, SearchResult, StoreStats } from "./types.js";
@@ -299,7 +301,7 @@ function findMinSpan(positionLists: number[][]): number {
   if (positionLists.length === 0) return Infinity;
   if (positionLists.length === 1) return 0;
 
-  const sorted = positionLists.map((p) => [...p].sort((a, b) => a - b));
+  const sorted = positionLists;
   const ptrs = new Array(sorted.length).fill(0);
   let minSpan = Infinity;
 
@@ -571,7 +573,8 @@ export class ContentStore {
         chunks.timestamp,
         sources.label,
         bm25(chunks, 5.0, 1.0) AS rank,
-        highlight(chunks, 1, char(2), char(3)) AS highlighted
+        highlight(chunks, 1, char(2), char(3)) AS highlighted,
+        chunks.session_id
       FROM chunks
       JOIN sources ON sources.id = chunks.source_id
       WHERE chunks MATCH ?
@@ -586,7 +589,8 @@ export class ContentStore {
         chunks.timestamp,
         sources.label,
         bm25(chunks, 5.0, 1.0) AS rank,
-        highlight(chunks, 1, char(2), char(3)) AS highlighted
+        highlight(chunks, 1, char(2), char(3)) AS highlighted,
+        chunks.session_id
       FROM chunks
       JOIN sources ON sources.id = chunks.source_id
       WHERE chunks MATCH ? AND sources.label LIKE ? ESCAPE '\\'
@@ -601,7 +605,8 @@ export class ContentStore {
         chunks.timestamp,
         sources.label,
         bm25(chunks, 5.0, 1.0) AS rank,
-        highlight(chunks, 1, char(2), char(3)) AS highlighted
+        highlight(chunks, 1, char(2), char(3)) AS highlighted,
+        chunks.session_id
       FROM chunks
       JOIN sources ON sources.id = chunks.source_id
       WHERE chunks MATCH ? AND sources.label = ?
@@ -616,7 +621,8 @@ export class ContentStore {
         chunks_trigram.timestamp,
         sources.label,
         bm25(chunks_trigram, 5.0, 1.0) AS rank,
-        highlight(chunks_trigram, 1, char(2), char(3)) AS highlighted
+        highlight(chunks_trigram, 1, char(2), char(3)) AS highlighted,
+        chunks_trigram.session_id
       FROM chunks_trigram
       JOIN sources ON sources.id = chunks_trigram.source_id
       WHERE chunks_trigram MATCH ?
@@ -631,7 +637,8 @@ export class ContentStore {
         chunks_trigram.timestamp,
         sources.label,
         bm25(chunks_trigram, 5.0, 1.0) AS rank,
-        highlight(chunks_trigram, 1, char(2), char(3)) AS highlighted
+        highlight(chunks_trigram, 1, char(2), char(3)) AS highlighted,
+        chunks_trigram.session_id
       FROM chunks_trigram
       JOIN sources ON sources.id = chunks_trigram.source_id
       WHERE chunks_trigram MATCH ? AND sources.label LIKE ? ESCAPE '\\'
@@ -646,7 +653,8 @@ export class ContentStore {
         chunks_trigram.timestamp,
         sources.label,
         bm25(chunks_trigram, 5.0, 1.0) AS rank,
-        highlight(chunks_trigram, 1, char(2), char(3)) AS highlighted
+        highlight(chunks_trigram, 1, char(2), char(3)) AS highlighted,
+        chunks_trigram.session_id
       FROM chunks_trigram
       JOIN sources ON sources.id = chunks_trigram.source_id
       WHERE chunks_trigram MATCH ? AND sources.label = ?
@@ -663,7 +671,8 @@ export class ContentStore {
         chunks.timestamp,
         sources.label,
         bm25(chunks, 5.0, 1.0) AS rank,
-        highlight(chunks, 1, char(2), char(3)) AS highlighted
+        highlight(chunks, 1, char(2), char(3)) AS highlighted,
+        chunks.session_id
       FROM chunks
       JOIN sources ON sources.id = chunks.source_id
       WHERE chunks MATCH ? AND chunks.content_type = ?
@@ -678,7 +687,8 @@ export class ContentStore {
         chunks.timestamp,
         sources.label,
         bm25(chunks, 5.0, 1.0) AS rank,
-        highlight(chunks, 1, char(2), char(3)) AS highlighted
+        highlight(chunks, 1, char(2), char(3)) AS highlighted,
+        chunks.session_id
       FROM chunks
       JOIN sources ON sources.id = chunks.source_id
       WHERE chunks MATCH ? AND sources.label LIKE ? ESCAPE '\\' AND chunks.content_type = ?
@@ -693,7 +703,8 @@ export class ContentStore {
         chunks.timestamp,
         sources.label,
         bm25(chunks, 5.0, 1.0) AS rank,
-        highlight(chunks, 1, char(2), char(3)) AS highlighted
+        highlight(chunks, 1, char(2), char(3)) AS highlighted,
+        chunks.session_id
       FROM chunks
       JOIN sources ON sources.id = chunks.source_id
       WHERE chunks MATCH ? AND sources.label = ? AND chunks.content_type = ?
@@ -708,7 +719,8 @@ export class ContentStore {
         chunks_trigram.timestamp,
         sources.label,
         bm25(chunks_trigram, 5.0, 1.0) AS rank,
-        highlight(chunks_trigram, 1, char(2), char(3)) AS highlighted
+        highlight(chunks_trigram, 1, char(2), char(3)) AS highlighted,
+        chunks_trigram.session_id
       FROM chunks_trigram
       JOIN sources ON sources.id = chunks_trigram.source_id
       WHERE chunks_trigram MATCH ? AND chunks_trigram.content_type = ?
@@ -723,7 +735,8 @@ export class ContentStore {
         chunks_trigram.timestamp,
         sources.label,
         bm25(chunks_trigram, 5.0, 1.0) AS rank,
-        highlight(chunks_trigram, 1, char(2), char(3)) AS highlighted
+        highlight(chunks_trigram, 1, char(2), char(3)) AS highlighted,
+        chunks_trigram.session_id
       FROM chunks_trigram
       JOIN sources ON sources.id = chunks_trigram.source_id
       WHERE chunks_trigram MATCH ? AND sources.label LIKE ? ESCAPE '\\' AND chunks_trigram.content_type = ?
@@ -738,7 +751,8 @@ export class ContentStore {
         chunks_trigram.timestamp,
         sources.label,
         bm25(chunks_trigram, 5.0, 1.0) AS rank,
-        highlight(chunks_trigram, 1, char(2), char(3)) AS highlighted
+        highlight(chunks_trigram, 1, char(2), char(3)) AS highlighted,
+        chunks_trigram.session_id
       FROM chunks_trigram
       JOIN sources ON sources.id = chunks_trigram.source_id
       WHERE chunks_trigram MATCH ? AND sources.label = ? AND chunks_trigram.content_type = ?
@@ -1068,6 +1082,7 @@ export class ContentStore {
       contentType: r.content_type as "code" | "prose",
       highlighted: r.highlighted,
       timestamp: r.timestamp ?? undefined,
+      sessionId: r.session_id ?? "",
     }));
   }
 
@@ -1310,14 +1325,24 @@ export class ContentStore {
     source?: string,
     contentType?: "code" | "prose",
     sourceMatchMode: SourceMatchMode = "like",
+    sessionIdAllowSet?: Set<string>,
   ): SearchResult[] {
     // Step 0: Auto-refresh stale file-backed sources before searching
     this.#refreshStaleSources();
 
+    // When a session-id allow-set is in play (issue #737 project filter),
+    // fetch a larger candidate pool from the FTS5 layers so the post-filter
+    // can still deliver `limit` matches even if many candidates are excluded.
+    // The cap is bounded — even at the largest installs the chunk count
+    // dwarfs `limit * 8`, and the surplus is dropped on the post-filter.
+    const fetchLimit = sessionIdAllowSet ? Math.max(limit * 8, 40) : limit;
+    const sessionFilter = this.#makeSessionFilter(sessionIdAllowSet);
+
     // Step 1: RRF fusion (porter OR + trigram OR → merge)
-    const rrfResults = this.#rrfSearch(query, limit, source, contentType, sourceMatchMode);
-    if (rrfResults.length > 0) {
-      const reranked = this.#applyProximityReranking(rrfResults, query);
+    const rrfResults = this.#rrfSearch(query, fetchLimit, source, contentType, sourceMatchMode);
+    const rrfFiltered = sessionFilter ? rrfResults.filter(sessionFilter) : rrfResults;
+    if (rrfFiltered.length > 0) {
+      const reranked = this.#applyProximityReranking(rrfFiltered.slice(0, limit), query);
       return reranked.map((r) => ({ ...r, matchLayer: "rrf" as const }));
     }
 
@@ -1334,14 +1359,31 @@ export class ContentStore {
     const correctedQuery = correctedWords.join(" ");
 
     if (correctedQuery !== original) {
-      const fuzzyResults = this.#rrfSearch(correctedQuery, limit, source, contentType, sourceMatchMode);
-      if (fuzzyResults.length > 0) {
-        const reranked = this.#applyProximityReranking(fuzzyResults, correctedQuery);
+      const fuzzyResults = this.#rrfSearch(correctedQuery, fetchLimit, source, contentType, sourceMatchMode);
+      const fuzzyFiltered = sessionFilter ? fuzzyResults.filter(sessionFilter) : fuzzyResults;
+      if (fuzzyFiltered.length > 0) {
+        const reranked = this.#applyProximityReranking(fuzzyFiltered.slice(0, limit), correctedQuery);
         return reranked.map((r) => ({ ...r, matchLayer: "rrf-fuzzy" as const }));
       }
     }
 
     return [];
+  }
+
+  /**
+   * Build the session-id post-filter for the FTS5 candidate pool. Legacy
+   * chunks indexed before per-session attribution carry `session_id=''` and
+   * stay visible across projects so user-indexed content remains reachable
+   * after opting into the shared-DB mode (#737).
+   */
+  #makeSessionFilter(
+    allowSet: Set<string> | undefined,
+  ): ((r: SearchResult) => boolean) | null {
+    if (!allowSet) return null;
+    return (r: SearchResult) => {
+      const sid = r.sessionId ?? "";
+      return sid === "" || allowSet.has(sid);
+    };
   }
 
   /** Number of sources auto-refreshed in the last searchWithFallback call. */
@@ -1411,6 +1453,27 @@ export class ContentStore {
       label: string;
       chunkCount: number;
     }>;
+  }
+
+  /**
+   * Aggregate snapshot of the persistent content store. Returns total
+   * chunk count, source count, and the most recent indexed_at timestamp.
+   * Used by ctx_stats so callers can see observability state in the same
+   * round trip instead of inferring it from snapshot diffs.
+   */
+  getIndexState(): { totalChunks: number; totalSources: number; lastIndexedAt?: string } {
+    const row = (this.#db
+      .prepare("SELECT COALESCE(SUM(chunk_count), 0) AS total_chunks, COUNT(*) AS total_sources, MAX(indexed_at) AS last_indexed_at FROM sources")
+      .get() as {
+        total_chunks: number;
+        total_sources: number;
+        last_indexed_at: string | null;
+      });
+    return {
+      totalChunks: row.total_chunks ?? 0,
+      totalSources: row.total_sources ?? 0,
+      lastIndexedAt: row.last_indexed_at ?? undefined,
+    };
   }
 
   /**

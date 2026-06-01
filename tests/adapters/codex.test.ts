@@ -605,6 +605,7 @@ describe("CodexAdapter", () => {
 
     it("removes standalone MCP registration and stale user-hook trust state in plugin mode", () => {
       const pluginRoot = join(codexDir, "plugin-root");
+      const stateHooksPath = hooksPath.replace(/\//g, "\\");
       writeCodexPluginManifest(pluginRoot);
       writeFileSync(hooksPath, JSON.stringify({
         hooks: {
@@ -621,10 +622,10 @@ args = ["-y", "context-mode"]
 [mcp_servers.context-mode.tools.ctx_execute]
 approval_mode = "approve"
 
-[hooks.state."${hooksPath}:pre_tool_use:0:0"]
+[hooks.state."${stateHooksPath}:pre_tool_use:0:0"]
 trusted_hash = "sha256:live"
 
-[hooks.state."${hooksPath}:pre_tool_use:1:0"]
+[hooks.state."${stateHooksPath}:pre_tool_use:1:0"]
 trusted_hash = "sha256:stale"
 `), "utf-8");
 
@@ -633,8 +634,8 @@ trusted_hash = "sha256:stale"
       const settings = readFileSync(join(codexDir, "config.toml"), "utf-8");
       expect(settings).not.toContain("[mcp_servers.context-mode]");
       expect(settings).not.toContain("[mcp_servers.context-mode.tools.ctx_execute]");
-      expect(settings).toContain(`${hooksPath}:pre_tool_use:0:0`);
-      expect(settings).not.toContain(`${hooksPath}:pre_tool_use:1:0`);
+      expect(settings).toContain(`${stateHooksPath}:pre_tool_use:0:0`);
+      expect(settings).not.toContain(`${stateHooksPath}:pre_tool_use:1:0`);
       expect(changes).toContain("Removed standalone Codex context-mode MCP registration");
       expect(changes.some((change) => change.includes("stale Codex hook trust"))).toBe(true);
     });

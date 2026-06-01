@@ -227,8 +227,6 @@ kill doc-misread false positives. 8 issues survived.
 - [x] **WV-1 — antigravity path/filename/scope (HIGH).** `setup` wrote
   `<project>/.antigravity/mcp.json` but `AntigravityAdapter.getSettingsPath`
   (= the path `doctor` reads) is `~/.gemini/antigravity/mcp_config.json`
-  for the Editor, or `~/.gemini/antigravity-cli/mcp_config.json` when the
-  Antigravity CLI marker is present
   (home-rooted, filename `mcp_config.json`). Three-axis divergence → setup
   succeeded but doctor reported WARN and Antigravity never loaded the server.
   Fixed `MCP_REGISTRATIONS.antigravity.resolvePath` → home-rooted

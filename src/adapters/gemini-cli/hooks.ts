@@ -1,4 +1,4 @@
-import { buildNodeCommand } from "../types.js";
+import { buildHookRuntimeCommand } from "../types.js";
 
 /**
  * adapters/gemini-cli/hooks — Gemini CLI hook definitions and matchers.
@@ -108,18 +108,21 @@ export function isContextModeHook(
  * Build the hook command string for a given hook type.
  * Uses absolute node path to avoid PATH issues (homebrew, nvm, volta, etc.).
  * Falls back to CLI dispatcher if pluginRoot is not provided.
+ *
+ * Issue #712: gemini-cli hook scripts live under `hooks/gemini-cli/<script>`
+ * on disk (verified via the published `files` field in package.json and
+ * HOOK_MAP in src/cli.ts which uses the same subdir for the CLI
+ * dispatcher form). The introducing commit (f5c9d02) carried claude-code's
+ * flat `hooks/<script>` shape over without accounting for the platform
+ * subdir, causing `ctx doctor` to FAIL every hook on every install
+ * (paths pointed at `<pluginRoot>/hooks/<script>` which never exist for
+ * gemini-cli). `setHookPermissions` in index.ts already uses the correct
+ * subdir, so this restores three-callsite parity.
  */
 export function buildHookCommand(hookType: HookType, pluginRoot?: string): string {
   const scriptName = HOOK_SCRIPTS[hookType];
   if (pluginRoot && scriptName) {
-    // Gemini's hook scripts ship under hooks/gemini-cli/ (NOT the repo-root
-    // hooks/ dir, which holds the Claude-Code scripts). The bare HOOK_SCRIPTS
-    // names must be joined with the gemini-cli/ segment or the written command
-    // points at a non-existent file and Gemini silently skips the hook. This
-    // matches src/cli.ts HOOK_MAP (hooks/gemini-cli/<event>.mjs) and
-    // setHookPermissions (index.ts joins hooks/gemini-cli over the same bare
-    // names — so do NOT add the segment to HOOK_SCRIPTS itself).
-    return buildNodeCommand(`${pluginRoot}/hooks/gemini-cli/${scriptName}`);
+    return buildHookRuntimeCommand(`${pluginRoot}/hooks/gemini-cli/${scriptName}`);
   }
   return `context-mode hook gemini-cli ${hookType.toLowerCase()}`;
 }

@@ -71,12 +71,23 @@ await runHook(async () => {
         const colonIdx = rejectedData.indexOf(":");
         const rejTool = colonIdx > 0 ? rejectedData.slice(0, colonIdx) : rejectedData;
         const rejReason = colonIdx > 0 ? rejectedData.slice(colonIdx + 1) : "denied";
-        db.insertEvent(sessionId, {
-          type: "rejected",
-          category: "rejected-approach",
-          data: `${rejTool}: ${rejReason}`,
-          priority: 2,
-        }, "PreToolUse");
+        // v1.0.160: route through attributeAndInsertEvents so the bridge wire
+        // receives this event too. db.insertEvent only writes locally — the
+        // dashboard's rejection-rate widget needs the platform row.
+        attributeAndInsertEvents(
+          db,
+          sessionId,
+          [{
+            type: "rejected",
+            category: "rejected-approach",
+            data: `${rejTool}: ${rejReason}`,
+            priority: 2,
+          }],
+          input,
+          projectDir,
+          "PreToolUse",
+          resolveProjectAttributions,
+        );
       }
     } catch { /* best-effort */ }
 
@@ -108,17 +119,24 @@ await runHook(async () => {
           const summary = redirectData.slice(i3 + 1);
           const bytesAvoided = Number.parseInt(bytesRaw, 10);
           if (Number.isFinite(bytesAvoided) && bytesAvoided > 0) {
-            db.insertEvent(
+            // v1.0.160: route through wire — context-saving (byte-accounting)
+            // widget on the platform reads category='redirect' rows. event
+            // carries bytes_avoided so the bytesList branch in
+            // attributeAndInsertEvents stamps the column.
+            attributeAndInsertEvents(
+              db,
               sessionId,
-              {
+              [{
                 type,
                 category: "redirect",
                 data: `${tool}: ${summary}`,
                 priority: 2,
-              },
+                bytes_avoided: bytesAvoided,
+              }],
+              input,
+              projectDir,
               "PreToolUse",
-              undefined,
-              { bytesAvoided, bytesReturned: 0 },
+              resolveProjectAttributions,
             );
           }
         }
@@ -140,12 +158,21 @@ await runHook(async () => {
         if (startTime && !isNaN(startTime)) {
           const duration = Date.now() - startTime;
           if (duration > 5000) {
-            db.insertEvent(sessionId, {
-              type: "tool_latency",
-              category: "latency",
-              data: `${toolName}: ${duration}ms`,
-              priority: 3,
-            }, "PostToolUse");
+            // v1.0.160: route through wire — slow-tool insights need this row.
+            attributeAndInsertEvents(
+              db,
+              sessionId,
+              [{
+                type: "tool_latency",
+                category: "latency",
+                data: `${toolName}: ${duration}ms`,
+                priority: 3,
+              }],
+              input,
+              projectDir,
+              "PostToolUse",
+              resolveProjectAttributions,
+            );
           }
         }
       }

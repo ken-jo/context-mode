@@ -17,9 +17,9 @@
 import * as p from "@clack/prompts";
 import color from "picocolors";
 import { execFileSync, execSync, execFile as nodeExecFile, type ExecSyncOptions } from "node:child_process";
-import { readFileSync, cpSync, accessSync, existsSync, readdirSync, rmSync, closeSync, openSync, chmodSync, constants } from "node:fs";
+import { readFileSync, writeFileSync, cpSync, accessSync, existsSync, readdirSync, rmSync, closeSync, openSync, chmodSync, mkdirSync, lstatSync, realpathSync, statSync, constants } from "node:fs";
 import { request as httpsRequest } from "node:https";
-import { resolve, dirname, join } from "node:path";
+import { resolve, dirname, join, sep, basename, isAbsolute } from "node:path";
 import { tmpdir, devNull, homedir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -40,6 +40,8 @@ import {
   StorageDirectoryError,
   type ResolvedStorageDir,
 } from "./session/db.js";
+import { ContentStore } from "./store.js";
+import { readToolDenyPatterns, evaluateFilePath } from "./security.js";
 // v1.0.128 — Issue #559 sibling MCP kill helpers (see PR-559-560-FIX-DESIGN.md).
 import { discoverSiblingMcpPids, killSiblingMcpServers } from "./util/sibling-mcp.js";
 // v1.0.119 — Issue #523 Layer 5 heal: post-bump assertion on .claude-plugin/plugin.json
@@ -66,6 +68,7 @@ function browserOpenArgv(
 
 // ── Adapter imports ──────────────────────────────────────
 import { detectPlatform, getAdapter } from "./adapters/detect.js";
+import { isInProcessPluginPlatform } from "./adapters/types.js";
 
 /* -------------------------------------------------------
  * Hook dispatcher — `context-mode hook <platform> <event>`
@@ -117,6 +120,15 @@ const HOOK_MAP: Record<string, Record<string, string>> = {
     precompact: "hooks/jetbrains-copilot/precompact.mjs",
     sessionstart: "hooks/jetbrains-copilot/sessionstart.mjs",
   },
+  "kimi": {
+    pretooluse: "hooks/kimi/pretooluse.mjs",
+    posttooluse: "hooks/kimi/posttooluse.mjs",
+    precompact: "hooks/kimi/precompact.mjs",
+    sessionstart: "hooks/kimi/sessionstart.mjs",
+    sessionend: "hooks/kimi/sessionend.mjs",
+    userpromptsubmit: "hooks/kimi/userpromptsubmit.mjs",
+    stop: "hooks/kimi/stop.mjs",
+  },
   "qwen-code": {
     pretooluse: "hooks/pretooluse.mjs",
     posttooluse: "hooks/posttooluse.mjs",
@@ -150,9 +162,6 @@ async function hookDispatch(platform: string, event: string): Promise<void> {
  * Entry point
  * ------------------------------------------------------- */
 
-const IN_PROCESS_PLUGIN_PLATFORMS = new Set(["opencode", "kilo"]);
-const isInProcessPluginPlatform = (p: string | undefined) =>
-  p ? IN_PROCESS_PLUGIN_PLATFORMS.has(p) : false;
 const args = process.argv.slice(2);
 
 function printHelp(): void {
@@ -160,6 +169,8 @@ function printHelp(): void {
     "Usage:",
     "  context-mode                         Start MCP server (stdio)",
     "  context-mode setup [<platform>]      Auto-detect host CLI and write hooks + MCP registration",
+    "  context-mode index <path>            Index a file or directory into the FTS5 knowledge base",
+    "  context-mode search <query...>       Search the current project's FTS5 knowledge base",
     "  context-mode doctor                  Diagnose runtime issues, hooks, FTS5, version",
     "  context-mode upgrade                 Fix hooks, permissions, and settings",
     "  context-mode hook <platform> <event> Dispatch a configured hook script",
@@ -171,6 +182,23 @@ function printHelp(): void {
     "  --uninstall                          Remove the context-mode entry (preserves other keys)",
     "  --scope user|project                 Target scope for project-aware platforms (cursor, vscode-copilot)",
     "",
+    "Index options:",
+    "  --source <label>                     Source label (default: project:<directory-name> or path)",
+    "  --project <path>                     Project identity for the content DB (default: indexed dir or cwd)",
+    "  --max-depth <n>                      Directory recursion depth (default: 5)",
+    "  --max-files <n>                      Directory file cap (default: 200)",
+    "  --ext <.ts,.md>                      Comma-separated extension allowlist",
+    "  --include <glob>                     Directory include pattern (repeatable)",
+    "  --exclude <glob>                     Directory exclude pattern (repeatable)",
+    "  --no-gitignore                       Do not apply .gitignore during directory walks",
+    "  --follow-symlinks                    Follow directory symlinks inside the root",
+    "",
+    "Search options:",
+    "  --project <path>                     Project identity for the content DB (default: cwd)",
+    "  --source <label>                     Filter to a source label (partial match)",
+    "  --limit <n>                          Results to show (default: 3)",
+    "  --type <code|prose>                  Filter by content type",
+    "",
     "Environment:",
     "  CONTEXT_MODE_DIR=/absolute/path      Override sessions/content storage root; empty is ignored, non-empty must be absolute",
     "  CONTEXT_MODE_PLATFORM=<id>           Force platform detection (claude-code, gemini-cli, …)",
@@ -179,6 +207,10 @@ function printHelp(): void {
 
 if (args[0] === "--help" || args[0] === "-h" || args[0] === "help") {
   printHelp();
+} else if (args[0] === "index") {
+  indexCommand(args.slice(1)).then((code) => process.exit(code));
+} else if (args[0] === "search") {
+  searchCommand(args.slice(1)).then((code) => process.exit(code));
 } else if (args[0] === "doctor") {
   doctor().then((code) => process.exit(code));
 } else if (args[0] === "setup") {
@@ -387,6 +419,223 @@ async function fetchLatestVersion(): Promise<string> {
 
 function describeStorageSource(dir: ResolvedStorageDir): string {
   return dir.envVar ? dir.envVar : "adapter default";
+}
+
+interface ParsedFlags {
+  positional: string[];
+  flags: Record<string, string | boolean | string[]>;
+}
+
+function parseFlags(argv: string[]): ParsedFlags {
+  const positional: string[] = [];
+  const flags: Record<string, string | boolean | string[]> = {};
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (!arg.startsWith("--") || arg === "--") {
+      positional.push(arg);
+      continue;
+    }
+
+    const raw = arg.slice(2);
+    const eq = raw.indexOf("=");
+    const key = eq >= 0 ? raw.slice(0, eq) : raw;
+    const inlineValue = eq >= 0 ? raw.slice(eq + 1) : undefined;
+    const next = argv[i + 1];
+    const value =
+      inlineValue !== undefined
+        ? inlineValue
+        : next && !next.startsWith("--")
+          ? (i++, next)
+          : true;
+
+    if (key === "include" || key === "exclude") {
+      const prev = flags[key];
+      flags[key] = Array.isArray(prev) ? [...prev, String(value)] : [String(value)];
+    } else {
+      flags[key] = value;
+    }
+  }
+
+  return { positional, flags };
+}
+
+function stringFlag(flags: ParsedFlags["flags"], key: string): string | undefined {
+  const v = flags[key];
+  if (typeof v === "string" && v.length > 0) return v;
+  return undefined;
+}
+
+function boolFlag(flags: ParsedFlags["flags"], key: string): boolean {
+  return flags[key] === true || flags[key] === "true";
+}
+
+function stringListFlag(flags: ParsedFlags["flags"], key: string): string[] | undefined {
+  const v = flags[key];
+  if (Array.isArray(v)) return v.filter(Boolean);
+  if (typeof v === "string" && v.length > 0) return [v];
+  return undefined;
+}
+
+function numberFlag(flags: ParsedFlags["flags"], key: string, opts: { min?: number } = {}): number | undefined {
+  const raw = stringFlag(flags, key);
+  if (!raw) return undefined;
+  const n = Number(raw);
+  const min = opts.min ?? 1;
+  if (!Number.isInteger(n) || n < min) throw new Error(`--${key} must be an integer >= ${min}`);
+  return n;
+}
+
+function extFlag(flags: ParsedFlags["flags"]): string[] | undefined {
+  const raw = stringFlag(flags, "ext") ?? stringFlag(flags, "extensions");
+  if (!raw) return undefined;
+  const exts = raw
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map((x) => (x.startsWith(".") ? x : `.${x}`));
+  return exts.length > 0 ? exts : undefined;
+}
+
+function resolveCliProjectDir(projectFlag: string | undefined, fallback: string): string {
+  if (projectFlag) return resolve(projectFlag);
+  return resolve(fallback);
+}
+
+async function openCliContentStore(projectDir: string): Promise<{ store: ContentStore; dbPath: string; contentDir: string }> {
+  const adapter = await getAdapter(detectPlatform().platform);
+  const contentStorage = resolveContentStorageDir(() => adapter.getSessionDir());
+  const contentDir = ensureWritableStorageDir(contentStorage);
+  const { resolveContentStorePath } = await import("./session/db.js");
+  const dbPath = resolveContentStorePath({ projectDir, contentDir });
+  return { store: new ContentStore(dbPath), dbPath, contentDir };
+}
+
+function defaultSourceForPath(absPath: string): string {
+  try {
+    if (statSync(absPath).isDirectory()) return `project:${basename(absPath) || absPath}`;
+  } catch { /* path errors are reported by the index command */ }
+  return absPath;
+}
+
+function assertReadAllowed(path: string, projectDir: string): void {
+  const denyGlobs = readToolDenyPatterns("Read", projectDir);
+  const denied = evaluateFilePath(path, denyGlobs, process.platform === "win32", projectDir);
+  if (denied.denied) {
+    throw new Error(`Read denied by policy: ${path}`);
+  }
+}
+
+async function indexCommand(argv: string[]): Promise<number> {
+  try {
+    const parsed = parseFlags(argv);
+    const target = parsed.positional[0];
+    if (!target || target === "-h" || target === "--help") {
+      console.log("Usage: context-mode index <path> [--source label] [--project path] [--max-files n] [--max-depth n] [--ext .ts,.md]");
+      return target ? 0 : 1;
+    }
+
+    const absPath = isAbsolute(target) ? resolve(target) : resolve(process.cwd(), target);
+    if (!existsSync(absPath)) throw new Error(`Path does not exist: ${absPath}`);
+
+    const st = statSync(absPath);
+    const projectDir = resolveCliProjectDir(
+      stringFlag(parsed.flags, "project"),
+      st.isDirectory() ? absPath : dirname(absPath),
+    );
+    const source = stringFlag(parsed.flags, "source") ?? defaultSourceForPath(absPath);
+    const { store, dbPath } = await openCliContentStore(projectDir);
+
+    try {
+      assertReadAllowed(absPath, projectDir);
+      if (st.isDirectory()) {
+        const denyGlobs = readToolDenyPatterns("Read", projectDir);
+        const result = store.indexDirectory({
+          path: absPath,
+          source,
+          include: stringListFlag(parsed.flags, "include"),
+          exclude: stringListFlag(parsed.flags, "exclude"),
+          maxDepth: numberFlag(parsed.flags, "max-depth", { min: 0 }),
+          maxFiles: numberFlag(parsed.flags, "max-files"),
+          extensions: extFlag(parsed.flags),
+          respectGitignore: !boolFlag(parsed.flags, "no-gitignore"),
+          followSymlinks: boolFlag(parsed.flags, "follow-symlinks"),
+          perFileDeny: (filePath) => {
+            try {
+              return evaluateFilePath(filePath, denyGlobs, process.platform === "win32", projectDir).denied;
+            } catch {
+              return false;
+            }
+          },
+        });
+        const cap = result.capped ? ` (cap reached at ${result.filesIndexed} files)` : "";
+        const denied = result.denied > 0 ? `; ${result.denied} denied` : "";
+        const failed = result.failed > 0 ? `; ${result.failed} failed` : "";
+        console.log(`Indexed ${result.filesIndexed} files (${result.totalChunks} sections) from ${absPath}${cap}${denied}${failed}`);
+      } else {
+        const result = store.index({ path: absPath, source });
+        console.log(`Indexed ${result.totalChunks} sections (${result.codeChunks} with code) from ${absPath}`);
+      }
+      console.log(`Source: ${source}`);
+      console.log(`Project: ${projectDir}`);
+      console.log(`DB: ${dbPath}`);
+      return 0;
+    } finally {
+      store.close();
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`context-mode index: ${message}`);
+    return 1;
+  }
+}
+
+async function searchCommand(argv: string[]): Promise<number> {
+  try {
+    const parsed = parseFlags(argv);
+    const query = parsed.positional.join(" ").trim();
+    if (!query || query === "-h" || query === "--help") {
+      console.log("Usage: context-mode search <query...> [--source label] [--project path] [--limit n] [--type code|prose]");
+      return query ? 0 : 1;
+    }
+
+    const projectDir = resolveCliProjectDir(stringFlag(parsed.flags, "project"), process.cwd());
+    const { store, dbPath } = await openCliContentStore(projectDir);
+    try {
+      const limit = numberFlag(parsed.flags, "limit") ?? 3;
+      const type = stringFlag(parsed.flags, "type");
+      if (type && type !== "code" && type !== "prose") throw new Error("--type must be code or prose");
+
+      const results = store.searchWithFallback(
+        query,
+        limit,
+        stringFlag(parsed.flags, "source"),
+        type as "code" | "prose" | undefined,
+      );
+      if (results.length === 0) {
+        console.log(`No matches for: ${query}`);
+        console.log(`Project: ${projectDir}`);
+        console.log(`DB: ${dbPath}`);
+        return 0;
+      }
+      for (const [i, r] of results.entries()) {
+        const content = r.content.replace(/\s+/g, " ").trim();
+        const snippet = content.length > 500 ? `${content.slice(0, 500)}...` : content;
+        console.log(`## ${i + 1}. ${r.title}`);
+        console.log(`Source: ${r.source}`);
+        console.log(`Type: ${r.contentType}`);
+        console.log(snippet);
+        console.log("");
+      }
+      return 0;
+    } finally {
+      store.close();
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`context-mode search: ${message}`);
+    return 1;
+  }
 }
 
 function logStorageDir(dir: ResolvedStorageDir): number {
@@ -1297,11 +1546,45 @@ async function upgrade(opts?: { platform?: string }) {
         ...(clonedPkg.files || []),
         "src", "package.json",
       ];
+      // Supply-chain containment on items[]. A compromised upstream tag
+      // shipping files: ["../../.ssh/authorized_keys"] or an absolute
+      // path would, without a guard, hand rmSync+cpSync an arbitrary
+      // destination under the user's UID. resolve(P, "/abs") discards P,
+      // so the absolute-path variant escapes too. Reject items whose
+      // resolved path escapes either srcDir or pluginRoot. Mirrors the
+      // pattern hooks/heal-partial-install.mjs already uses for its own
+      // files[] expansion (PR #699).
+      //
+      // Also refuse to copy any symlink encountered anywhere under a
+      // source item. cpSync's default is to preserve source symlinks as
+      // destination symlinks; a compromised upstream tag committing a
+      // symlink to /etc inside src/ would plant that link in pluginRoot,
+      // and the next Claude Code session that loads pluginRoot/src/*
+      // would dereference through to the attacker target. Filtering at
+      // copy time keeps pluginRoot symlink-free regardless of what the
+      // clone shipped.
+      const pluginRootWithSep = resolve(pluginRoot) + sep;
+      const srcDirWithSep = resolve(srcDir) + sep;
+      const refuseSymlinks = (src: string): boolean => {
+        try { return !lstatSync(src).isSymbolicLink(); } catch { return false; }
+      };
       for (const item of items) {
+        const from = resolve(srcDir, item);
+        const to = resolve(pluginRoot, item);
+        if (!(to + sep).startsWith(pluginRootWithSep)) continue;
+        if (!(from + sep).startsWith(srcDirWithSep)) continue;
+        if (!refuseSymlinks(from)) continue;
+        // Existence-check the source BEFORE the rm so a `files[]` entry that
+        // doesn't exist in srcDir can never delete-without-replace at
+        // pluginRoot. The catch-all below swallows cpSync failures too, and
+        // a swallowed cp after a successful rm is exactly how a partial
+        // install lands silently. Mirrors the safe pattern in
+        // server.ts's inline-fallback upgrade path (PR #699).
+        if (!existsSync(from)) continue;
         try {
-          rmSync(resolve(pluginRoot, item), { recursive: true, force: true });
-          cpSync(resolve(srcDir, item), resolve(pluginRoot, item), { recursive: true });
-        } catch { /* some files may not exist in source */ }
+          rmSync(to, { recursive: true, force: true });
+          cpSync(from, to, { recursive: true, filter: refuseSymlinks });
+        } catch { /* best effort, next /ctx-upgrade retries */ }
       }
 
       // Issue #609 — DO NOT write `.mcp.json` into the plugin cache dir.
@@ -1323,22 +1606,75 @@ async function upgrade(opts?: { platform?: string }) {
       // The post-bump cache-sweep below removes any pre-existing copies so
       // the previous-version-carry vector cannot replay.
 
-      // Normalize hooks.json + plugin.json against the REAL pluginRoot now that
-      // files have been copied. Two reasons:
-      //   1. If a prior buggy postinstall (or any future regression) baked the
-      //      tmpdir path into hooks.json, this rewrites it to pluginRoot before
-      //      the next hook fires.
-      //   2. Closes the same gap #414 closed for fresh installs — the first
-      //      hook fire after upgrade now works without waiting for MCP boot.
+      // Issue #711 + #414 split: normalize hooks.json (only) here.
+      //
+      //   - plugin.json must NOT be normalized during /ctx-upgrade — Claude
+      //     Code carries it forward into new versioned cache dirs on
+      //     auto-update, so baked absolute paths go stale (#711).
+      //   - hooks/hooks.json MUST be normalized during /ctx-upgrade on
+      //     Windows + Git Bash — Claude Code fires SessionStart / PreToolUse
+      //     BEFORE the MCP server boots, so the unresolved
+      //     `${CLAUDE_PLUGIN_ROOT}` placeholder yields MODULE_NOT_FOUND for
+      //     the first hook fire after upgrade (#414, originally wired in
+      //     13d1342 / #528).
+      //
+      // The narrow `normalizeHooksJsonOnly` helper preserves both invariants.
+      // start.mjs continues to call the full `normalizeHooksOnStartup` at the
+      // next MCP boot to re-heal plugin.json against the live __dirname.
       try {
-        const mod: { normalizeHooksOnStartup: (opts: { pluginRoot: string; nodePath: string; platform: string }) => void } =
+        // #738: pass the resolved Bun ≥1.0 path so /ctx-upgrade's hooks.json
+        // rewrite gains the same cold-start win as the boot-time rewrite.
+        // Probe failures fall through to nodePath default.
+        let jsRuntimePath: string | undefined;
+        try {
+          const { resolveHookRuntime } = await import("./runtime.js");
+          const r = resolveHookRuntime();
+          if (r.isBun) jsRuntimePath = r.path;
+        } catch { /* best effort */ }
+        const mod: { normalizeHooksJsonOnly: (opts: { pluginRoot: string; nodePath: string; jsRuntimePath?: string; platform: string }) => void } =
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (await import("../hooks/normalize-hooks.mjs" as any)) as any;
-        mod.normalizeHooksOnStartup({
+        mod.normalizeHooksJsonOnly({
           pluginRoot,
           nodePath: process.execPath,
+          jsRuntimePath,
           platform: process.platform,
         });
+      } catch { /* best effort — never block upgrade */ }
+
+      // Issue #710 — Layer 1: rewrite stale shell-snapshot PATH entries.
+      //
+      // Claude Code's per-session shell snapshot
+      // (~/.claude/shell-snapshots/snapshot-*.sh, baked at session boot —
+      // refs/platforms/claude-code/src/utils/bash/ShellSnapshot.ts:269-336)
+      // is `source`d before every Bash tool call. It contains an
+      // `export PATH='…'` line including the context-mode `bin/` for the
+      // version active at session start. /ctx-upgrade deletes the old
+      // cache dir mid-session — the snapshot still points at it, so every
+      // Bash call fails with "Plugin directory does not exist" until the
+      // session restarts. Layer 1 fixes the active session immediately;
+      // Layer 2 (sessionstart.mjs) heals any session that started before
+      // /ctx-upgrade ran.
+      //
+      // claude-code only — no other adapter uses shell-snapshots. Skip
+      // when running under a non-claude-code adapter (Codex/Cursor/Gemini
+      // etc. spawn Bash differently and have no `~/.claude/shell-snapshots`
+      // tree). Best-effort, idempotent, never throws.
+      try {
+        if (detection.platform === "claude-code") {
+          const { rewriteShellSnapshots } = await import(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            "../hooks/cache-heal-utils.mjs" as any
+          ) as { rewriteShellSnapshots: (opts: { snapshotsDir: string; currentVersion: string }) => { rewritten: string[] } };
+          const snapshotsDir = resolve(resolveClaudeConfigDir(), "shell-snapshots");
+          const result = rewriteShellSnapshots({
+            snapshotsDir,
+            currentVersion: newVersion,
+          });
+          if (result.rewritten.length > 0) {
+            p.log.info(color.dim(`  Healed ${result.rewritten.length} stale shell snapshot(s) — Bash tool calls in the active session will pick up v${newVersion} immediately`));
+          }
+        }
       } catch { /* best effort — never block upgrade */ }
 
       s.stop(color.green(`Updated in-place to v${newVersion}`));
@@ -1605,19 +1941,48 @@ async function upgrade(opts?: { platform?: string }) {
       // Issue #460 round-3: honor $CLAUDE_CONFIG_DIR so the registry lookup
       // tracks relocated CC config trees.
       try {
-        const registryPath = resolve(resolveClaudeConfigDir(), "plugins", "installed_plugins.json");
+        const claudeRoot = resolveClaudeConfigDir();
+        const registryPath = resolve(claudeRoot, "plugins", "installed_plugins.json");
         if (existsSync(registryPath)) {
+          // The registry's installPath fields are written by Claude Code under
+          // <claudeRoot>/plugins/cache/<marketplace>/<plugin>/<version>. Any other
+          // shape means the registry has been tampered with by a co-resident
+          // plugin, a malicious postinstall script, or another local actor.
+          // Without containment, cpSync would happily recursive-write the in-repo
+          // skills/ tree to /etc/skills, ~/.ssh/skills, or wherever the attacker
+          // pointed. server.ts:790 (healCacheMidSession) already gates the same
+          // field this way; the symmetric guard belongs here too.
+          //
+          // The lexical resolve+startsWith check rejects ".."-escapes and
+          // absolute paths outside cacheRoot, but path.resolve doesn't
+          // dereference symlinks. A same-uid actor who can plant a symlink
+          // AT <cacheRoot>/<owner>/<plugin>/<version> targeting an attacker
+          // dir gets past the lexical guard, then cpSync follows the link at
+          // FS-write time. Re-check via realpathSync so a planted symlink
+          // anchor fails the gate.
+          const cacheRoot = resolve(claudeRoot, "plugins", "cache");
+          let cacheRootCanon: string;
+          try { cacheRootCanon = realpathSync(cacheRoot); }
+          catch { cacheRootCanon = cacheRoot; }
+          const cacheRootWithSep = cacheRootCanon + sep;
           const registry = JSON.parse(readFileSync(registryPath, "utf-8"));
           const entries = registry?.plugins?.["context-mode@context-mode"];
           if (Array.isArray(entries)) {
             for (const entry of entries) {
-              const installPath = entry.installPath;
-              if (installPath && installPath !== pluginRoot && existsSync(installPath)) {
-                const srcSkills = resolve(srcDir, "skills");
-                if (existsSync(srcSkills)) {
-                  cpSync(srcSkills, resolve(installPath, "skills"), { recursive: true });
-                  changes.push(`Synced skills to active install path`);
-                }
+              const installPath = entry?.installPath;
+              if (typeof installPath !== "string" || !installPath) continue;
+              if (installPath === pluginRoot) continue;
+              const resolvedInstallPath = resolve(installPath);
+              if (!(resolvedInstallPath + sep).startsWith(cacheRootWithSep)) continue;
+              if (!existsSync(resolvedInstallPath)) continue;
+              let realInstallPath: string;
+              try { realInstallPath = realpathSync(resolvedInstallPath); }
+              catch { continue; }
+              if (!(realInstallPath + sep).startsWith(cacheRootWithSep)) continue;
+              const srcSkills = resolve(srcDir, "skills");
+              if (existsSync(srcSkills)) {
+                cpSync(srcSkills, resolve(realInstallPath, "skills"), { recursive: true });
+                changes.push(`Synced skills to active install path`);
               }
             }
           }
@@ -1839,14 +2204,37 @@ function statuslineForward(): void {
   try {
     const registryPath = resolve(claudeRoot, "plugins", "installed_plugins.json");
     if (existsSync(registryPath)) {
+      // Same trust boundary as the cpSync site in upgrade() and as
+      // server.ts:790's healCacheMidSession: only honor installPath values
+      // that resolve under <claudeRoot>/plugins/cache. A stray /etc or
+      // ~/.ssh entry written by another local actor must not become the
+      // script the statusline forwarder imports, since statusline re-fires
+      // several times per second and would hand the attacker durable RCE
+      // on the user's behalf.
+      //
+      // path.resolve is purely lexical, so a same-uid actor who can plant
+      // a symlink at <cacheRoot>/<owner>/<plugin>/<version> targeting an
+      // attacker dir would pass the lexical gate. Re-check via
+      // realpathSync so the dynamic-import target's actual on-disk
+      // location also stays under cacheRoot.
+      const cacheRoot = resolve(claudeRoot, "plugins", "cache");
+      let cacheRootCanon: string;
+      try { cacheRootCanon = realpathSync(cacheRoot); }
+      catch { cacheRootCanon = cacheRoot; }
+      const cacheRootWithSep = cacheRootCanon + sep;
       const registry = JSON.parse(readFileSync(registryPath, "utf-8"));
       const entries = registry?.plugins?.["context-mode@context-mode"];
       if (Array.isArray(entries)) {
         for (const entry of entries) {
           const installPath = entry?.installPath;
-          if (typeof installPath === "string" && installPath) {
-            candidates.push(resolve(installPath, "bin", "statusline.mjs"));
-          }
+          if (typeof installPath !== "string" || !installPath) continue;
+          const resolvedInstallPath = resolve(installPath);
+          if (!(resolvedInstallPath + sep).startsWith(cacheRootWithSep)) continue;
+          let realInstallPath: string;
+          try { realInstallPath = realpathSync(resolvedInstallPath); }
+          catch { continue; }
+          if (!(realInstallPath + sep).startsWith(cacheRootWithSep)) continue;
+          candidates.push(resolve(realInstallPath, "bin", "statusline.mjs"));
         }
       }
     }

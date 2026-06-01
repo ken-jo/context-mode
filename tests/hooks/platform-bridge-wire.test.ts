@@ -12,7 +12,7 @@
 
 import { describe, test, beforeEach, afterEach, expect, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 
@@ -38,6 +38,24 @@ function makeEvents(n: number) {
   }));
 }
 
+function platformConfigFile(fakeHome: string): string {
+  if (process.platform === "win32") {
+    return join(
+      process.env.APPDATA ?? join(fakeHome, "AppData", "Roaming"),
+      "context-mode",
+      "platform.json",
+    );
+  }
+  return join(fakeHome, ".context-mode", "platform.json");
+}
+
+function writePlatformConfig(fakeHome: string, config: Record<string, unknown>): string {
+  const cfgFile = platformConfigFile(fakeHome);
+  mkdirSync(dirname(cfgFile), { recursive: true });
+  writeFileSync(cfgFile, JSON.stringify(config));
+  return cfgFile;
+}
+
 const resolveAttribs = (evs: { type: string }[]) =>
   evs.map(() => ({ project_dir: "/tmp/p", project_hash: "abc" }));
 
@@ -48,37 +66,24 @@ async function importFresh() {
   return { bridge, loaders };
 }
 
-// Mirrors hooks/platform-bridge.mjs::configPath() — on Windows the bridge
-// reads APPDATA, on POSIX it reads HOME (via os.homedir()). Tests must
-// write platform.json to whichever directory the bridge will actually look
-// in for the current platform.
-function platformConfigDir(home: string): string {
-  return process.platform === "win32"
-    ? join(home, "AppData", "Roaming", "context-mode")
-    : join(home, ".context-mode");
-}
-
 describe("platform-bridge wire — session-loaders forwards events", () => {
   let fakeHome: string;
   let origHome: string | undefined;
   let origXdg: string | undefined;
-  let origAppdata: string | undefined;
-  let origUserprofile: string | undefined;
+  let origAppData: string | undefined;
+  let origClaudeSessionId: string | undefined;
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     fakeHome = mkdtempSync(join(tmpdir(), "ctx-bridge-wire-"));
     origHome = process.env.HOME;
     origXdg = process.env.XDG_CONFIG_HOME;
-    origAppdata = process.env.APPDATA;
-    origUserprofile = process.env.USERPROFILE;
+    origAppData = process.env.APPDATA;
+    origClaudeSessionId = process.env.CLAUDE_SESSION_ID;
     process.env.HOME = fakeHome;
     delete process.env.XDG_CONFIG_HOME;
-    // Windows: configPath() reads APPDATA first, falls back to os.homedir()
-    // (which honors USERPROFILE on Windows). Override both so the fake home
-    // wins regardless of which branch the bridge takes.
     process.env.APPDATA = join(fakeHome, "AppData", "Roaming");
-    process.env.USERPROFILE = fakeHome;
+    process.env.CLAUDE_SESSION_ID = "platform-bridge-test";
     fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, { status: 200 }),
     );
@@ -89,13 +94,14 @@ describe("platform-bridge wire — session-loaders forwards events", () => {
     else delete process.env.HOME;
     if (origXdg !== undefined) process.env.XDG_CONFIG_HOME = origXdg;
     else delete process.env.XDG_CONFIG_HOME;
-    if (origAppdata !== undefined) process.env.APPDATA = origAppdata;
+    if (origAppData !== undefined) process.env.APPDATA = origAppData;
     else delete process.env.APPDATA;
-    if (origUserprofile !== undefined) process.env.USERPROFILE = origUserprofile;
-    else delete process.env.USERPROFILE;
+    if (origClaudeSessionId !== undefined) process.env.CLAUDE_SESSION_ID = origClaudeSessionId;
+    else delete process.env.CLAUDE_SESSION_ID;
     try {
       rmSync(fakeHome, { recursive: true, force: true });
     } catch {}
+    vi.useRealTimers();
     vi.doUnmock("../../hooks/platform-bridge.mjs");
     vi.resetModules();
     vi.restoreAllMocks();
@@ -156,14 +162,12 @@ describe("platform-bridge wire — session-loaders forwards events", () => {
     vi.useFakeTimers({ shouldAdvanceTime: false });
     vi.setSystemTime(new Date("2026-06-01T00:00:00Z"));
 
-    mkdirSync(platformConfigDir(fakeHome), { recursive: true });
-    const cfgFile = join(platformConfigDir(fakeHome), "platform.json");
-    writeFileSync(
-      cfgFile,
-      JSON.stringify({
+    const cfgFile = writePlatformConfig(
+      fakeHome,
+      {
         api_key: "ctxm_ttl_test",
         platform_url: "https://example.test/api/v1",
-      }),
+      },
     );
 
     const { loaders, bridge } = await importFresh();
@@ -205,13 +209,12 @@ describe("platform-bridge wire — session-loaders forwards events", () => {
   });
 
   test("with valid platform.json, N events triggers N fetch calls", async () => {
-    mkdirSync(platformConfigDir(fakeHome), { recursive: true });
-    writeFileSync(
-      join(platformConfigDir(fakeHome), "platform.json"),
-      JSON.stringify({
+    writePlatformConfig(
+      fakeHome,
+      {
         api_key: "ctxm_wire_test",
         platform_url: "https://example.test/api/v1",
-      }),
+      },
     );
 
     const { loaders } = await importFresh();
@@ -236,13 +239,12 @@ describe("platform-bridge wire — session-loaders forwards events", () => {
   });
 
   test("project attribution: attributions[i].projectDir flows into POST body (sanitized)", async () => {
-    mkdirSync(platformConfigDir(fakeHome), { recursive: true });
-    writeFileSync(
-      join(platformConfigDir(fakeHome), "platform.json"),
-      JSON.stringify({
+    writePlatformConfig(
+      fakeHome,
+      {
         api_key: "ctxm_proj_test",
         platform_url: "https://example.test/api/v1",
-      }),
+      },
     );
 
     const { loaders } = await importFresh();
@@ -277,13 +279,12 @@ describe("platform-bridge wire — session-loaders forwards events", () => {
   });
 
   test("envelope ABI: unknown event fields passthrough to body unchanged", async () => {
-    mkdirSync(platformConfigDir(fakeHome), { recursive: true });
-    writeFileSync(
-      join(platformConfigDir(fakeHome), "platform.json"),
-      JSON.stringify({
+    writePlatformConfig(
+      fakeHome,
+      {
         api_key: "ctxm_envelope_test",
         platform_url: "https://example.test/api/v1",
-      }),
+      },
     );
 
     const { loaders } = await importFresh();
@@ -459,8 +460,8 @@ describe("platform-bridge — project identity resolution", () => {
     let fakeHome: string;
     let origHome: string | undefined;
     let origXdg: string | undefined;
-    let origAppdata: string | undefined;
-    let origUserprofile: string | undefined;
+    let origAppData: string | undefined;
+    let origClaudeSessionId: string | undefined;
     let fetchSpy: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
@@ -468,15 +469,12 @@ describe("platform-bridge — project identity resolution", () => {
       fakeHome = mkdtempSync(join(tmpdir(), "ctx-bridge-integration-home-"));
       origHome = process.env.HOME;
       origXdg = process.env.XDG_CONFIG_HOME;
-      origAppdata = process.env.APPDATA;
-      origUserprofile = process.env.USERPROFILE;
+      origAppData = process.env.APPDATA;
+      origClaudeSessionId = process.env.CLAUDE_SESSION_ID;
       process.env.HOME = fakeHome;
       delete process.env.XDG_CONFIG_HOME;
-      // Same Windows-config-path coverage as the outer describe (see top
-      // of file): configPath() reads APPDATA first on win32, falls back to
-      // os.homedir() (which honors USERPROFILE). Override both.
       process.env.APPDATA = join(fakeHome, "AppData", "Roaming");
-      process.env.USERPROFILE = fakeHome;
+      process.env.CLAUDE_SESSION_ID = "platform-bridge-test";
       fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
         new Response(null, { status: 200 }),
       );
@@ -487,12 +485,13 @@ describe("platform-bridge — project identity resolution", () => {
       else delete process.env.HOME;
       if (origXdg !== undefined) process.env.XDG_CONFIG_HOME = origXdg;
       else delete process.env.XDG_CONFIG_HOME;
-      if (origAppdata !== undefined) process.env.APPDATA = origAppdata;
+      if (origAppData !== undefined) process.env.APPDATA = origAppData;
       else delete process.env.APPDATA;
-      if (origUserprofile !== undefined) process.env.USERPROFILE = origUserprofile;
-      else delete process.env.USERPROFILE;
+      if (origClaudeSessionId !== undefined) process.env.CLAUDE_SESSION_ID = origClaudeSessionId;
+      else delete process.env.CLAUDE_SESSION_ID;
       try { rmSync(scratchRoot, { recursive: true, force: true }); } catch {}
       try { rmSync(fakeHome, { recursive: true, force: true }); } catch {}
+      vi.useRealTimers();
       vi.doUnmock("../../hooks/platform-bridge.mjs");
       vi.resetModules();
       vi.restoreAllMocks();
@@ -506,13 +505,12 @@ describe("platform-bridge — project identity resolution", () => {
         stdio: "ignore",
       });
 
-      mkdirSync(platformConfigDir(fakeHome), { recursive: true });
-      writeFileSync(
-        join(platformConfigDir(fakeHome), "platform.json"),
-        JSON.stringify({
+      writePlatformConfig(
+        fakeHome,
+        {
           api_key: "ctxm_resolve_test",
           platform_url: "https://example.test/api/v1",
-        }),
+        },
       );
 
       const { loaders } = await importFresh();

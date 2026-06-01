@@ -3014,30 +3014,32 @@ describe("Runtime summary bun detection (#190)", () => {
   });
 });
 
-// ── Plugin root detection for Opencode/Kilocode platforms ────────────────
+// ── Plugin root: opencode/kilo single-source-of-truth file:// pointer ────
 
-describe("Plugin root detection (#PR refactor/opencode-improvements)", () => {
+describe("Plugin root detection (opencode/kilo file:// pointer)", () => {
   const CLI_SOURCE = readFileSync(resolve(ROOT, "src", "cli.ts"), "utf-8");
+  const OPENCODE_SOURCE = readFileSync(
+    resolve(ROOT, "src", "adapters", "opencode", "index.ts"),
+    "utf-8",
+  );
 
-  test("cachePluginRoot uses LOCALAPPDATA on Windows", () => {
-    const cacheRootStart = CLI_SOURCE.indexOf("function cachePluginRoot");
-    const cacheRootBody = CLI_SOURCE.slice(cacheRootStart, cacheRootStart + 500);
-    expect(cacheRootBody).toContain("process.env.LOCALAPPDATA");
-    expect(cacheRootBody).toContain('process.platform === "win32"');
+  test("cachePluginRoot is removed — opencode/kilo no longer keep a per-package npm copy", () => {
+    // opencode/kilo now point their plugin entry at the npm-global build via a
+    // file:// pointer (single source of truth, like the Pi/OMP wrappers), so
+    // the per-package cache helper is gone.
+    expect(CLI_SOURCE).not.toContain("function cachePluginRoot");
   });
 
-  test("cachePluginRoot uses ~/.cache as default on non-Windows", () => {
-    const cacheRootStart = CLI_SOURCE.indexOf("function cachePluginRoot");
-    const cacheRootBody = CLI_SOURCE.slice(cacheRootStart, cacheRootStart + 500);
-    expect(cacheRootBody).toContain('".cache"');
-    expect(cacheRootBody).toContain("homedir");
+  test("getPluginRoot resolves the npm-global build for every platform (no cache branch)", () => {
+    // getPluginRoot returns defaultPluginRoot() for all platforms now, and the
+    // per-package cachePluginRoot helper is gone entirely.
+    expect(CLI_SOURCE).toMatch(/function getPluginRoot\(\): string \{[\s\S]*?return defaultPluginRoot\(\);/);
+    expect(CLI_SOURCE).not.toContain("cachePluginRoot");
   });
 
-  test("getPluginRoot uses cache path for opencode/kilo platform", () => {
-    const getPluginRootStart = CLI_SOURCE.indexOf("function getPluginRoot");
-    const getPluginRootBody = CLI_SOURCE.slice(getPluginRootStart, getPluginRootStart + 300);
-    expect(getPluginRootBody).toContain("isInProcessPluginPlatform(platform)");
-    expect(getPluginRootBody).toContain("cachePluginRoot");
+  test("OpenCode configureAllHooks points the plugin entry at the npm-global build via file://", () => {
+    expect(OPENCODE_SOURCE).toContain("pathToFileURL");
+    expect(OPENCODE_SOURCE).toMatch(/"build",\s*"adapters",\s*"opencode",\s*"plugin\.js"/);
   });
 });
 

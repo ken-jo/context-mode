@@ -324,25 +324,12 @@ function defaultPluginRoot(): string {
   return __dirname;
 }
 
-// Opencode/Kilocode install plugins from npm into a per-package cache folder.
-// Layout (changed silently in late 2024 — see PR #376 / KiloCode#9503):
-//   POSIX  : ~/.cache/<platform>/packages/context-mode@latest/node_modules/context-mode
-//   Windows: %LOCALAPPDATA%\<platform>\packages\context-mode@latest\node_modules\context-mode
-function cachePluginRoot(platform: string): string {
-  const subPath = ["packages", "context-mode@latest", "node_modules", "context-mode"];
-  if (process.platform === "win32") {
-    const localApp = process.env.LOCALAPPDATA;
-    if (localApp) return resolve(localApp, platform, ...subPath);
-    return resolve(homedir(), "AppData", "Local", platform, ...subPath);
-  }
-  return resolve(homedir(), ".cache", platform, ...subPath);
-}
-
 function getPluginRoot(): string {
-  const platform = detectPlatform().platform;
-  if (isInProcessPluginPlatform(platform)) {
-    return cachePluginRoot(platform);
-  }
+  // opencode/kilo previously installed a per-package npm copy under a
+  // ~/.cache/<platform>/packages/... folder; they now reference the single
+  // npm-global build via a file:// pointer in their plugin array (the same
+  // single-source-of-truth approach the Pi/OMP extension wrappers use), so the
+  // install root is the npm-global dir for every non-marketplace platform.
   return defaultPluginRoot();
 }
 

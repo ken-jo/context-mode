@@ -171,9 +171,11 @@ OpenCode uses a TypeScript plugin paradigm instead of JSON stdin/stdout. Hooks a
 
 **Configuration:**
 - `opencode.json` or `.opencode/opencode.json`
-- Plugin registered in the `plugin` array with npm package names
+- Plugin registered in the `plugin` array. Two equivalent forms:
+  - **Manual:** `"plugin": ["context-mode"]` — the npm name; OpenCode fetches its own per-package copy into `~/.cache/<platform>/packages/...`.
+  - **`context-mode setup`:** a `file://` pointer at the single npm-global build — `"plugin": ["file:///<npm-global>/context-mode/build/adapters/opencode/plugin.js"]`. The loader (`isPathPluginSpec` → `resolvePathPluginTarget`) imports the path directly, so there is **no per-package copy** and one `npm i -g context-mode` refreshes the host with no re-fetch — the same single-source-of-truth approach the Pi/OMP extension wrappers use. The pointer is an absolute, machine-specific path: correct for a per-machine config, but do not commit it in a shared project `opencode.json` (use a global `~/.config/<platform>/` config to share setups).
 - `ctx_*` tools are native plugin tools, not `mcp__server__tool` calls
-- KiloCode uses the same plugin path via `kilo.json`; `context-mode upgrade` removes stale `mcp.context-mode` entries for both hosts while preserving other MCP servers
+- KiloCode uses the same plugin path via `kilo.json` (pointing at the same `build/adapters/opencode/plugin.js`); `context-mode upgrade` removes stale `mcp.context-mode` entries for both hosts while preserving other MCP servers
 
 **Cross-session resume:**
 When OpenCode triggers `experimental.session.compacting` (auto on context overflow OR manual `/compact`), context-mode saves a snapshot to its per-project SQLite store. The NEXT new session in the same project — typically after `Ctrl+D` then re-running `opencode`, or starting a fresh chat — claims that snapshot via `experimental.chat.system.transform` and prepends it to `system[1]` (preserves OpenCode's `[header, body]` cache fold). The current session never claims its OWN snapshot back (self-injection guard, v1.0.106). To verify the injection landed, run with `OPENCODE_DEBUG=1` and grep for `<!-- context-mode v` in the system prompt — that's the visible marker.

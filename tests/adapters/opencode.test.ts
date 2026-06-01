@@ -221,7 +221,9 @@ describe("OpenCodeAdapter", () => {
         changes: ["Added context-mode to plugin array"],
       });
       expect(() => readFileSync(resolve(dir, "opencode.json"), "utf-8")).toThrow();
-      expect(JSON.parse(readFileSync(file, "utf-8"))).toEqual({ plugin: ["context-mode"] });
+      expect(JSON.parse(readFileSync(file, "utf-8"))).toEqual({
+        plugin: ["file:///tmp/plugin/build/adapters/opencode/plugin.js"],
+      });
 
       rmSync(root, { recursive: true, force: true });
     });
@@ -261,9 +263,44 @@ describe("OpenCodeAdapter", () => {
       expect(JSON.parse(run.stdout)).toContain("Removed legacy context-mode MCP block (plugin-native tools)");
       expect(JSON.parse(readFileSync(file, "utf-8"))).toEqual({
         mcp: { other: { type: "local", command: ["other"] } },
-        plugin: ["context-mode"],
+        plugin: ["file:///tmp/plugin/build/adapters/opencode/plugin.js"],
       });
 
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    it("configureAllHooks migrates a bare 'context-mode' npm name to a file:// pointer at the npm-global build (single source of truth)", () => {
+      const root = mkdtempSync(join(tmpdir(), "opencode-adapter-"));
+      const dir = join(root, "project");
+      const home = join(root, "home");
+      const conf = join(home, ".config", "opencode");
+      const file = join(conf, "opencode.json");
+      const src = resolve(process.cwd(), "src", "adapters", "opencode", "index.ts");
+      const tsx = resolve(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
+      mkdirSync(dir, { recursive: true });
+      mkdirSync(conf, { recursive: true });
+      // Stale state: the old bare npm-name entry (which made OpenCode fetch a
+      // per-package copy) plus an unrelated sibling plugin that must survive.
+      writeFileSync(file, JSON.stringify({ plugin: ["other-plugin", "context-mode"] }, null, 2) + "\n");
+      const run = spawnSync(
+        process.execPath,
+        [
+          tsx,
+          "-e",
+          `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify(a.configureAllHooks('/opt/ngm/context-mode')))`,
+        ],
+        { cwd: dir, env: env(home), encoding: "utf-8" },
+      );
+      expect(run.status).toBe(0);
+      const cfg = JSON.parse(readFileSync(file, "utf-8"));
+      // Bare "context-mode" is replaced by a file:// pointer at the npm-global
+      // build; the sibling plugin is preserved and NO duplicate bare npm name
+      // remains (so the host imports the single source of truth, no re-fetch).
+      expect(cfg.plugin).toEqual([
+        "other-plugin",
+        "file:///opt/ngm/context-mode/build/adapters/opencode/plugin.js",
+      ]);
+      expect(cfg.plugin).not.toContain("context-mode");
       rmSync(root, { recursive: true, force: true });
     });
 
@@ -442,7 +479,7 @@ describe("OpenCodeAdapter", () => {
         expect(JSON.parse(run.stdout)).toEqual(["Added context-mode to plugin array"]);
         // Should write back to .jsonc (same file it read)
         expect(JSON.parse(readFileSync(join(dir, "opencode.jsonc"), "utf-8"))).toEqual({
-          plugin: ["context-mode"],
+          plugin: ["file:///tmp/plugin/build/adapters/opencode/plugin.js"],
         });
         rmSync(root, { recursive: true, force: true });
       });
@@ -498,7 +535,9 @@ describe("OpenCodeAdapter", () => {
         expect(run.status).toBe(0);
         expect(JSON.parse(run.stdout)).toEqual(["Added context-mode to plugin array"]);
         expect(() => readFileSync(resolve(dir, "opencode.json"), "utf-8")).toThrow();
-        expect(JSON.parse(readFileSync(file, "utf-8"))).toEqual({ plugin: ["context-mode"] });
+        expect(JSON.parse(readFileSync(file, "utf-8"))).toEqual({
+          plugin: ["file:///tmp/plugin/build/adapters/opencode/plugin.js"],
+        });
 
         rmSync(root, { recursive: true, force: true });
       });

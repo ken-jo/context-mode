@@ -31,8 +31,9 @@ import {
   accessSync,
   constants,
 } from "node:fs";
-import { resolve, join } from "node:path";
+import { dirname, resolve, join } from "node:path";
 import { homedir } from "node:os";
+import { pathToFileURL, fileURLToPath } from "node:url";
 
 import { BaseAdapter, resolveContextModeDataRoot } from "../base.js";
 
@@ -462,7 +463,27 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
   }
 
   getInstalledVersion(): string {
-    // Check ~/.cache/opencode/node_modules/ for context-mode
+    // Preferred: derive the version from the file:// pointer in the plugin
+    // array. The pointer targets <root>/build/adapters/opencode/plugin.js, so
+    // the package root (and its package.json) is three directories up.
+    try {
+      const settings = this.readSettings();
+      const plugins = (settings?.plugin ?? []) as unknown[];
+      const pointer = plugins.find(
+        (p): p is string =>
+          typeof p === "string" && p.startsWith("file:") && p.includes("context-mode"),
+      );
+      if (pointer) {
+        const pkgRoot = resolve(dirname(fileURLToPath(pointer)), "..", "..", "..");
+        const pkg = JSON.parse(readFileSync(resolve(pkgRoot, "package.json"), "utf-8"));
+        if (typeof pkg.version === "string") return pkg.version;
+      }
+    } catch {
+      /* fall through to the legacy per-package cache lookup */
+    }
+
+    // Legacy: the per-package npm cache (back-compat for installs that predate
+    // the file:// pointer migration).
     try {
       const pkgPath = resolve(
         homedir(),
@@ -482,20 +503,40 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
 
   // ── Upgrade ────────────────────────────────────────────
 
-  configureAllHooks(_pluginRoot: string): string[] {
+  configureAllHooks(pluginRoot: string): string[] {
     const settings = this.readSettings() ?? {};
     const changes: string[] = [];
 
-    // Add "context-mode" to the plugin array
-    const plugins = (settings.plugin ?? []) as string[];
-    if (!plugins.some((p) => p.includes("context-mode"))) {
-      plugins.push("context-mode");
-      changes.push("Added context-mode to plugin array");
-    } else {
-      changes.push("context-mode already in plugin array");
-    }
+    // Point the plugin entry at the single npm-global build via a file:// URL
+    // — the same single-source-of-truth approach the Pi/OMP extension wrappers
+    // use — instead of the bare "context-mode" npm name. A bare name makes
+    // OpenCode/Kilo fetch a DUPLICATE per-package copy into
+    // ~/.cache/<platform>/packages/...; the host's loader resolves a file://
+    // path directly (isPathPluginSpec → resolvePathPluginTarget), so updating
+    // the one npm-global install refreshes both hosts with no re-fetch.
+    // Caveat: the pointer is an absolute, machine-specific path — correct for a
+    // per-machine config, but it should not be committed in a shared project
+    // opencode.json (use a global ~/.config/<platform>/ config to share setups).
+    const pointer = pathToFileURL(
+      resolve(pluginRoot, "build", "adapters", "opencode", "plugin.js"),
+    ).href;
 
-    settings.plugin = plugins;
+    // Drop any prior context-mode entry (bare npm name OR a stale file://
+    // pointer — both contain "context-mode") and append the current pointer.
+    const current = (settings.plugin ?? []) as unknown[];
+    const kept = current.filter(
+      (p) => !(typeof p === "string" && p.includes("context-mode")),
+    );
+    const next = [...kept, pointer];
+    const unchanged =
+      current.length === next.length && current.every((p, i) => p === next[i]);
+    changes.push(
+      unchanged
+        ? "context-mode already in plugin array"
+        : "Added context-mode to plugin array",
+    );
+
+    settings.plugin = next;
 
     const mcp = settings.mcp;
     if (mcp && typeof mcp === "object" && !Array.isArray(mcp)) {

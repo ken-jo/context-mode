@@ -13,10 +13,11 @@
  *     global `~/.omp/agent/SYSTEM.md` fallback). NOT `PI.md` — no `PI.md`
  *     loader exists upstream. OMP also auto-discovers `AGENTS.md` via
  *     `packages/coding-agent/src/discovery/agents-md.ts`.
- *   - Hook surface: OMP DOES expose pre/post tool-call hooks
- *     (`~/.omp/agent/hooks/{pre,post}/*.ts`, `omp.on("tool_call", ...)`).
- *     This adapter ships MCP-only delivery for now; wiring native OMP
- *     hooks is future work tracked separately.
+ *   - Hook surface: OMP exposes in-process plugin hooks (`pi.on(...)`):
+ *     `tool_call`, `tool_result`, `session_start`, and
+ *     `session_before_compact`. `context-mode setup omp` installs a tiny
+ *     wrapper under `~/.omp/agent/extensions/context-mode/` that re-exports
+ *     `build/adapters/omp/plugin.js` from the active context-mode package.
  *
  * Why a dedicated adapter rather than reusing pi:
  *   OMP and Pi share a runtime surface but different storage roots
@@ -61,36 +62,36 @@ export class OMPAdapter extends BaseAdapter implements HookAdapter {
   }
 
   readonly name = "OMP";
-  readonly paradigm: HookParadigm = "mcp-only";
+  readonly paradigm: HookParadigm = "ts-plugin";
 
   readonly capabilities: PlatformCapabilities = {
-    preToolUse: false,
-    postToolUse: false,
-    preCompact: false,
-    sessionStart: false,
+    preToolUse: true,
+    postToolUse: true,
+    preCompact: true,
+    sessionStart: true,
     canModifyArgs: false,
     canModifyOutput: false,
     canInjectSessionContext: false,
   };
 
   // ── Input parsing ──────────────────────────────────────
-  // OMP does not support hooks. These methods exist to satisfy the
-  // interface contract but will throw if called.
+  // OMP plugin hooks run in-process; the JSON-stdio hook dispatcher is not
+  // used. These methods exist to satisfy the interface contract.
 
   parsePreToolUseInput(_raw: unknown): PreToolUseEvent {
-    throw new Error("OMP hooks not wired by this adapter (MCP-only delivery)");
+    throw new Error("OMP plugin hooks are in-process; JSON-stdio dispatch is not used");
   }
 
   parsePostToolUseInput(_raw: unknown): PostToolUseEvent {
-    throw new Error("OMP hooks not wired by this adapter (MCP-only delivery)");
+    throw new Error("OMP plugin hooks are in-process; JSON-stdio dispatch is not used");
   }
 
   parsePreCompactInput(_raw: unknown): PreCompactEvent {
-    throw new Error("OMP hooks not wired by this adapter (MCP-only delivery)");
+    throw new Error("OMP plugin hooks are in-process; JSON-stdio dispatch is not used");
   }
 
   parseSessionStartInput(_raw: unknown): SessionStartEvent {
-    throw new Error("OMP hooks not wired by this adapter (MCP-only delivery)");
+    throw new Error("OMP plugin hooks are in-process; JSON-stdio dispatch is not used");
   }
 
   // ── Response formatting ────────────────────────────────
@@ -168,10 +169,9 @@ export class OMPAdapter extends BaseAdapter implements HookAdapter {
     return [
       {
         check: "Hook support",
-        status: "warn",
+        status: "pass",
         message:
-          "context-mode delivers via MCP for OMP. " +
-          "Native OMP pre/post tool-call hooks are not yet wired by this adapter.",
+          "OMP plugin wrapper wires tool_call, tool_result, session_start, and session_before_compact.",
       },
     ];
   }
@@ -182,25 +182,36 @@ export class OMPAdapter extends BaseAdapter implements HookAdapter {
       const config = JSON.parse(raw);
       const mcpServers = (config as { mcpServers?: Record<string, unknown> })?.mcpServers ?? {};
 
-      if ("context-mode" in mcpServers) {
+      if (!("context-mode" in mcpServers)) {
         return {
           check: "MCP registration",
-          status: "pass",
-          message: "context-mode found in mcpServers config",
+          status: "fail",
+          message: "context-mode not found in mcpServers",
+          fix: "context-mode setup omp",
         };
       }
 
+      const pkgPath = resolve(this.getAgentDir(), "extensions", "context-mode", "package.json");
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+      if (pkg?.name === "context-mode") {
+        return {
+          check: "OMP plugin registration",
+          status: "pass",
+          message: "context-mode found in mcpServers and OMP extension wrapper",
+        };
+      }
       return {
-        check: "MCP registration",
+        check: "OMP plugin registration",
         status: "fail",
-        message: "context-mode not found in mcpServers",
-        fix: `Add context-mode to mcpServers in ${this.getSettingsPath()}`,
+        message: `Unexpected package at ${pkgPath}`,
+        fix: "context-mode setup omp",
       };
     } catch {
       return {
-        check: "MCP registration",
-        status: "warn",
-        message: `Could not read ${this.getSettingsPath()}`,
+        check: "OMP plugin registration",
+        status: "fail",
+        message: `Could not read ${this.getSettingsPath()} or OMP extension wrapper`,
+        fix: "context-mode setup omp",
       };
     }
   }

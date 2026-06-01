@@ -31,7 +31,7 @@ import {
   accessSync,
   constants,
 } from "node:fs";
-import { resolve, join } from "node:path";
+import { dirname, resolve, join } from "node:path";
 import { homedir } from "node:os";
 
 import { BaseAdapter, resolveContextModeDataRoot } from "../base.js";
@@ -387,6 +387,7 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
 
   writeSettings(settings: Record<string, unknown>): void {
     // Write to opencode.json(c)/kilo.json(c) in current directory
+    mkdirSync(dirname(this.getSettingsPath()), { recursive: true });
     writeFileSync(
       this.getSettingsPath(),
       JSON.stringify(settings, null, 2) + "\n",
@@ -405,7 +406,7 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
         check: "Plugin configuration",
         status: "fail",
         message: `Could not read ${this.platform}.json or ${this.platform}.jsonc`,
-        fix: "context-mode upgrade",
+        fix: `context-mode setup ${this.platform}`,
       });
       return results;
     }
@@ -421,14 +422,14 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
           : "context-mode not found in plugin array",
         fix: hasPlugin
           ? undefined
-          : "context-mode upgrade",
+          : `context-mode setup ${this.platform}`,
       });
     } else {
       results.push({
         check: "Plugin registration",
         status: "fail",
         message: `No plugin array found in ${this.platform}.json or ${this.platform}.jsonc`,
-        fix: "context-mode upgrade",
+        fix: `context-mode setup ${this.platform}`,
       });
     }
 
@@ -437,7 +438,7 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
         check: "Legacy MCP registration",
         status: "warn",
         message: "mcp.context-mode is redundant: ctx_* tools are now provided by the plugin",
-        fix: "context-mode upgrade (removes only mcp.context-mode; preserves other MCP servers)",
+        fix: `context-mode setup ${this.platform} (removes only mcp.context-mode; preserves other MCP servers)`,
       });
     }
 
@@ -474,7 +475,7 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
       check: "Plugin registration",
       status: "fail",
       message: `context-mode not found in ${this.platform}.json plugin array`,
-      fix: "context-mode upgrade",
+      fix: `context-mode setup ${this.platform}`,
     };
   }
 
@@ -504,15 +505,15 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
     const changes: string[] = [];
 
     // Add "context-mode" to the plugin array
-    const plugins = (settings.plugin ?? []) as string[];
-    if (!plugins.some((p) => p.includes("context-mode"))) {
+    const plugins = Array.isArray(settings.plugin) ? [...settings.plugin] as string[] : [];
+    if (!plugins.some((p) => typeof p === "string" && p.includes("context-mode"))) {
       plugins.push("context-mode");
       changes.push("Added context-mode to plugin array");
-    } else {
-      changes.push("context-mode already in plugin array");
     }
 
-    settings.plugin = plugins;
+    if (JSON.stringify(settings.plugin) !== JSON.stringify(plugins)) {
+      settings.plugin = plugins;
+    }
 
     const mcp = settings.mcp;
     if (mcp && typeof mcp === "object" && !Array.isArray(mcp)) {
@@ -524,7 +525,9 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
       if (Object.keys(servers).length === 0) delete settings.mcp;
     }
 
-    this.writeSettings(settings);
+    if (changes.length > 0) {
+      this.writeSettings(settings);
+    }
     return changes;
   }
 

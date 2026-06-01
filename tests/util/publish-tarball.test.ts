@@ -17,6 +17,7 @@
 import { describe, test, expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -30,10 +31,15 @@ interface PackResult {
 }
 
 function pack(): PackResult {
-  const out = execFileSync("npm", ["pack", "--dry-run", "--json"], {
+  const out = execFileSync(process.platform === "win32" ? "npm.cmd" : "npm", ["pack", "--dry-run", "--json"], {
     cwd: REPO_ROOT,
     encoding: "utf-8",
     timeout: 60_000,
+    env: {
+      ...process.env,
+      npm_config_cache: resolve(tmpdir(), "context-mode-npm-cache"),
+      npm_config_update_notifier: "false",
+    },
     // npm prints JSON only when stderr is captured silently.
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -54,6 +60,7 @@ describe("publish tarball hygiene (Item F2)", () => {
     "server.bundle.mjs",
     "scripts/preinstall.mjs",
     "scripts/postinstall.mjs",
+    "scripts/install-openclaw-plugin.sh",
     "scripts/lib/runtime-precheck.mjs",
     "scripts/lib/heal/runtime-heal-suite.mjs",
     "scripts/lib/heal/heal-log.mjs",

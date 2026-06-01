@@ -30,6 +30,7 @@ import {
 } from "./runtime.js";
 import { getHookScriptPaths } from "./util/hook-config.js";
 import { resolveClaudeConfigDir } from "./util/claude-config.js";
+import { resolveProjectDir } from "./util/project-dir.js";
 import {
   ensureWritableStorageDir,
   formatStorageDirectoryError,
@@ -426,7 +427,8 @@ async function doctor(): Promise<number> {
   // and rely on a rules file (AGENTS.md / GEMINI.md) for routing nudges,
   // which the model follows ~60% of the time per upstream measurements.
   // Surface this explicitly so users don't expect hook-grade enforcement.
-  if (adapter.paradigm === "mcp-only") {
+  const bestEffortRoutingPlatforms = new Set(["antigravity", "zed"]);
+  if (bestEffortRoutingPlatforms.has(detection.platform)) {
     p.log.warn(
       color.yellow("Routing fidelity: best-effort (~60%)") +
         color.dim(` — ${adapter.name} has no hook surface; routing relies on a rules file`),
@@ -592,6 +594,7 @@ async function doctor(): Promise<number> {
           (result.fix ? color.dim(`\n  Run: ${result.fix}`) : ""),
       );
     } else {
+      criticalFails++;
       p.log.error(
         color.red(`${result.check}: FAIL`) +
           ` — ${result.message}` +
@@ -621,6 +624,7 @@ async function doctor(): Promise<number> {
             (result.detail ? color.dim(` — ${result.detail}`) : ""),
         );
       } else {
+        criticalFails++;
         p.log.error(
           color.red(`${hc.name}: FAIL`) +
             (result.detail ? color.dim(` — ${result.detail}`) : ""),
@@ -638,6 +642,7 @@ async function doctor(): Promise<number> {
           accessSync(absolutePath, constants.R_OK);
           p.log.success(color.green("Hook script exists: PASS") + color.dim(` — ${absolutePath}`));
         } catch {
+          criticalFails++;
           p.log.error(
             color.red("Hook script exists: FAIL") +
               color.dim(` — not found at ${absolutePath}`),
@@ -653,17 +658,15 @@ async function doctor(): Promise<number> {
   if (pluginCheck.status === "pass") {
     p.log.success(color.green("Plugin enabled: PASS") + color.dim(` — ${pluginCheck.message}`));
   } else {
-    p.log.warn(
-      color.yellow("Plugin enabled: WARN") +
-        ` — ${pluginCheck.message}`,
-    );
+    if (pluginCheck.status === "fail") criticalFails++;
+    const log = pluginCheck.status === "fail" ? p.log.error : p.log.warn;
+    const label = pluginCheck.status === "fail" ? color.red("Plugin enabled: FAIL") : color.yellow("Plugin enabled: WARN");
+    log(label + ` — ${pluginCheck.message}`);
     // Item A5 — one-line remediation: most WARN/FAIL here means the user
     // never ran a setup flow for this host. Point them at the command that
     // closes the loop without forcing them to dig through README per-platform.
-    p.log.info(
-      color.dim("  Try: ") + color.cyan("context-mode setup") +
-        color.dim(`   # auto-register hooks + mcpServers for ${adapter.name}`),
-    );
+    const remediation = pluginCheck.fix?.replace(/^Run:\s*/i, "") ?? "context-mode setup";
+    p.log.info(color.dim("  Try: ") + color.cyan(remediation));
   }
 
   // ── Issue #613 — proactive Tier C absolute-path detection ───────────
@@ -1144,6 +1147,13 @@ async function upgrade(opts?: { platform?: string }) {
     ? { platform: opts.platform as Parameters<typeof getAdapter>[0], confidence: "high" as const, reason: `--platform ${opts.platform} from ctx_upgrade handler` }
     : detectPlatform();
   const adapter = await getAdapter(detection.platform);
+  const projectDir = resolveProjectDir({
+    env: process.env,
+    cwd: process.cwd(),
+    pwd: process.env.PWD,
+    strictPlatform: detection.platform,
+    transcriptsRoot: resolve(resolveClaudeConfigDir(), "projects"),
+  });
 
   p.intro(color.bgCyan(color.black(" context-mode upgrade ")));
   p.log.info(
@@ -1683,7 +1693,28 @@ async function upgrade(opts?: { platform?: string }) {
     throw new Error(`Hook configuration failed: ${message}`);
   }
 
-  // Step 4b: Refresh MCP server registration — Item A7 of
+  // Step 4b: Refresh platform package/extension install. setup owns the
+  // Pi/OMP wrapper install path; upgrade must run the same path so existing
+  // users migrate instead of getting green doctor on stale MCP-only config.
+  try {
+    const { refreshPlatformInstall } = await import("./setup.js");
+    const concretePlatform = detection.platform ?? detectPlatform().platform;
+    const installResult = refreshPlatformInstall(concretePlatform, { pluginRoot });
+    if (installResult === null) {
+      p.log.info(color.dim("Platform install refresh: not applicable for this platform"));
+    } else if (installResult.changed) {
+      p.log.success(color.green("Platform install refreshed") + color.dim(` — ${installResult.desc}`));
+      changes.push(installResult.desc);
+    } else {
+      p.log.info(color.dim(installResult.desc));
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.exitCode = 1;
+    p.log.error(color.red("Platform install refresh failed") + color.dim(` — ${message}`));
+  }
+
+  // Step 4c: Refresh MCP server registration — Item A7 of
   // docs/setup-improvements.md. Hooks alone are insufficient for the
   // json-stdio platforms with a separate `mcp.json`/`settings.json`
   // mcpServers block (gemini-cli, vscode-copilot, cursor, qwen-code,
@@ -1695,7 +1726,7 @@ async function upgrade(opts?: { platform?: string }) {
     // supplied (Parameters<typeof getAdapter>[0] is PlatformId | undefined);
     // fall back to the same detect call getAdapter uses internally.
     const concretePlatform = detection.platform ?? detectPlatform().platform;
-    const mcpResult = refreshMcpRegistration(concretePlatform);
+    const mcpResult = refreshMcpRegistration(concretePlatform, { projectDir });
     if (mcpResult === null) {
       // Platform either has no separate mcp file (claude-code marketplace,
       // opencode in-process plugin) or is managed externally — no-op is correct.
@@ -1706,9 +1737,9 @@ async function upgrade(opts?: { platform?: string }) {
       p.log.info(color.dim(mcpResult.desc));
     }
   } catch (err: unknown) {
-    // Never block upgrade on a registration refresh failure — best-effort.
     const message = err instanceof Error ? err.message : String(err);
-    p.log.warn(color.yellow("MCP registration refresh skipped") + color.dim(` — ${message}`));
+    process.exitCode = 1;
+    p.log.error(color.red("MCP registration refresh failed") + color.dim(` — ${message}`));
   }
 
   // Step 5: Set hook script permissions — adapter-aware
@@ -1730,10 +1761,16 @@ async function upgrade(opts?: { platform?: string }) {
     p.log.success(color.green("Permissions set") + color.dim(` — ${permSet.length} hook script(s)`));
     changes.push(`Set ${permSet.length} hook scripts as executable`);
   } else {
-    p.log.error(
-      color.red("No hook scripts found") +
-        color.dim(" — expected in " + resolve(pluginRoot, "hooks")),
-    );
+    const expectedHookScripts = getHookScriptPaths(adapter, pluginRoot);
+    if (expectedHookScripts.length > 0) {
+      process.exitCode = 1;
+      p.log.error(
+        color.red("No hook scripts found") +
+          color.dim(" — expected in " + resolve(pluginRoot, "hooks")),
+      );
+    } else {
+      p.log.info(color.dim("No chmod step needed — this platform does not use direct .mjs hook scripts"));
+    }
   }
 
   // Step 6: Report
@@ -1770,8 +1807,9 @@ async function upgrade(opts?: { platform?: string }) {
       env: { ...process.env, CONTEXT_MODE_PLATFORM: detection.platform },
     });
   } catch {
+    process.exitCode = 1;
     p.log.warn(
-      color.yellow("Doctor had warnings") +
+      color.yellow("Doctor verification failed") +
         color.dim(` — restart your ${adapter.name} session to pick up the new version`),
     );
   }

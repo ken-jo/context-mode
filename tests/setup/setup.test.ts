@@ -32,6 +32,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const REPO_CLI = resolve(REPO_ROOT, "src", "cli.ts");
+const TSX_LOADER = resolve(REPO_ROOT, "node_modules", "tsx", "dist", "loader.mjs");
 
 /** Track temp dirs so afterEach can clean them up. */
 let _tmps: string[] = [];
@@ -64,9 +65,13 @@ function runSetup(opts: {
     // Force a stable cwd unless the test overrides it.
     NODE_NO_WARNINGS: "1",
   };
+  if (process.platform === "win32") {
+    env.LOCALAPPDATA = resolve(opts.home, "AppData", "Local");
+    env.APPDATA = resolve(opts.home, "AppData", "Roaming");
+  }
   const r = spawnSync(
-    "npx",
-    ["--prefix", REPO_ROOT, "tsx", REPO_CLI, "setup", ...opts.args],
+    process.execPath,
+    ["--import", TSX_LOADER, REPO_CLI, "setup", ...opts.args],
     {
       cwd: opts.cwd ?? opts.home,
       env,
@@ -83,8 +88,9 @@ function runSetup(opts: {
  * to user-home defaults so setup writes the same file the adapter's
  * checkPluginRegistration() (doctor) reads — verified by the official-source
  * workflow (see docs/setup-improvements.md "Workflow verification findings").
- *   - antigravity: ~/.gemini/antigravity/mcp_config.json (home; mcp_config.json,
- *     NOT mcp.json) — matches AntigravityAdapter.getConfigDir.
+ *   - antigravity: ~/.gemini/antigravity/mcp_config.json by default
+ *     (or antigravity-cli when ANTIGRAVITY_CLI_ALIAS is set), home;
+ *     mcp_config.json, NOT mcp.json — matches AntigravityAdapter.getConfigDir.
  *   - kiro: ~/.kiro/settings/mcp.json (home default) — matches
  *     KiroAdapter.getSettingsPath.
  */
@@ -96,7 +102,10 @@ function expectedTargetPath(platform: string, home: string, cwd: string): string
     case "qwen-code":    return resolve(home, ".qwen", "settings.json");
     case "kiro":         return resolve(home, ".kiro", "settings", "mcp.json");
     case "antigravity":  return resolve(home, ".gemini", "antigravity", "mcp_config.json");
-    case "zed":          return resolve(home, ".config", "zed", "settings.json");
+    case "zed":
+      return process.platform === "win32"
+        ? resolve(home, "AppData", "Local", "Zed", "settings.json")
+        : resolve(home, ".config", "zed", "settings.json");
     default: throw new Error(`unknown platform ${platform}`);
   }
 }
@@ -218,12 +227,9 @@ describe("setup --check", () => {
   test("noop on fresh re-apply for gemini-cli (mcp is up-to-date)", () => {
     const home = mkTmp("ctx-setup-check-");
     runSetup({ home, args: [], platform: "gemini-cli" });
-    // Hooks WOULD CONFIGURE always — known limitation logged in
-    // docs/setup-improvements.md "Discovered issues". So --check exits 1
-    // (drift). The narrow assertion we can make today is that the MCP
-    // registration is reported up-to-date.
     const r = runSetup({ home, args: ["--check"], platform: "gemini-cli" });
     expect(r.stdout + r.stderr).toMatch(/up-to-date/);
+    expect(r.status).toBe(0);
   });
 
   test("reports WOULD WRITE on a virgin HOME for gemini-cli", () => {
@@ -233,6 +239,19 @@ describe("setup --check", () => {
     // exit 1 = drift detected; the test harness treats non-zero as failure
     // for spawnSync.status but we want to assert THIS exit code precisely.
     expect(r.status).toBe(1);
+  });
+
+  test("reports hook drift when MCP is present but hooks are missing", () => {
+    const home = mkTmp("ctx-setup-check-hooks-");
+    const settingsPath = expectedTargetPath("gemini-cli", home, home);
+    mkdirSync(dirname(settingsPath), { recursive: true });
+    writeFileSync(settingsPath, JSON.stringify({
+      mcpServers: { "context-mode": { command: "context-mode" } },
+    }, null, 2));
+
+    const r = runSetup({ home, args: ["--check"], platform: "gemini-cli" });
+    expect(r.status).toBe(1);
+    expect(r.stdout + r.stderr).toMatch(/Hooks: WOULD WRITE/);
   });
 });
 
@@ -273,7 +292,7 @@ describe("setup --uninstall preserves user keys", () => {
   });
 });
 
-describe("setup manual-hint platforms exit cleanly", () => {
+describe("setup formerly manual platforms", () => {
   test("claude-code prints marketplace pointer + exit 0", () => {
     const home = mkTmp("ctx-setup-cc-");
     const r = runSetup({ home, args: [], platform: "claude-code" });
@@ -288,11 +307,61 @@ describe("setup manual-hint platforms exit cleanly", () => {
     expect(r.stdout + r.stderr).toMatch(/config\.toml/i);
   });
 
-  test("jetbrains-copilot prints UI Settings instructions + exit 0", () => {
+  test("jetbrains-copilot writes hook config and prints MCP UI note", () => {
     const home = mkTmp("ctx-setup-jb-");
-    const r = runSetup({ home, args: [], platform: "jetbrains-copilot" });
+    const cwd = mkTmp("ctx-setup-jb-proj-");
+    const r = runSetup({ home, cwd, args: [], platform: "jetbrains-copilot" });
     expect(r.status).toBe(0);
     expect(r.stdout + r.stderr).toMatch(/Settings/);
+    const hooksPath = resolve(cwd, ".github", "hooks", "context-mode.json");
+    expect(existsSync(hooksPath)).toBe(true);
+    const hooks = JSON.parse(readFileSync(hooksPath, "utf-8"));
+    expect(hooks.hooks.PreToolUse[0].command).toBe("context-mode hook jetbrains-copilot pretooluse");
+  });
+
+  test("opencode writes singular plugin array", () => {
+    const home = mkTmp("ctx-setup-opencode-");
+    const r = runSetup({ home, args: [], platform: "opencode" });
+    expect(r.status).toBe(0);
+    const parsed = JSON.parse(readFileSync(resolve(home, "opencode.json"), "utf-8"));
+    expect(parsed.plugin).toContain("context-mode");
+  });
+
+  test("kilo writes singular plugin array", () => {
+    const home = mkTmp("ctx-setup-kilo-");
+    const r = runSetup({ home, args: [], platform: "kilo" });
+    expect(r.status).toBe(0);
+    const parsed = JSON.parse(readFileSync(resolve(home, "kilo.json"), "utf-8"));
+    expect(parsed.plugin).toContain("context-mode");
+  });
+
+  test("openclaw writes plugin entry plus MCP sidecar", () => {
+    const home = mkTmp("ctx-setup-openclaw-home-");
+    const cwd = mkTmp("ctx-setup-openclaw-proj-");
+    const r = runSetup({ home, cwd, args: [], platform: "openclaw" });
+    expect(r.status).toBe(0);
+    const parsed = JSON.parse(readFileSync(resolve(cwd, "openclaw.json"), "utf-8"));
+    expect(parsed.plugins.entries["context-mode"]).toBeDefined();
+    expect(parsed.mcp.servers["context-mode"].command).toBe("node");
+  });
+
+  test("pi installs extension wrapper", () => {
+    const home = mkTmp("ctx-setup-pi-");
+    const r = runSetup({ home, args: [], platform: "pi" });
+    expect(r.status).toBe(0);
+    const pkg = JSON.parse(readFileSync(resolve(home, ".pi", "agent", "extensions", "context-mode", "package.json"), "utf-8"));
+    expect(pkg.name).toBe("context-mode");
+    expect(existsSync(resolve(home, ".pi", "agent", "extensions", "context-mode", "index.js"))).toBe(true);
+  });
+
+  test("omp writes MCP registration, extension wrapper, and managed SYSTEM.md block", () => {
+    const home = mkTmp("ctx-setup-omp-");
+    const r = runSetup({ home, args: [], platform: "omp" });
+    expect(r.status).toBe(0);
+    const mcp = JSON.parse(readFileSync(resolve(home, ".omp", "agent", "mcp.json"), "utf-8"));
+    expect(mcp.mcpServers["context-mode"].command).toBe("context-mode");
+    expect(existsSync(resolve(home, ".omp", "agent", "extensions", "context-mode", "index.js"))).toBe(true);
+    expect(readFileSync(resolve(home, ".omp", "agent", "SYSTEM.md"), "utf-8")).toMatch(/context-mode:setup:start/);
   });
 });
 

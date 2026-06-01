@@ -14,22 +14,25 @@
  *     1. Hooks  → adapter.configureAllHooks(pluginRoot)  (existing path)
  *     2. MCP    → idempotent merge into the platform's mcp/servers JSON
  *
- *   marketplace / native-managed (claude-code, opencode, kilo, openclaw,
- *   pi, omp): noop with a one-line pointer to the README path that handles it.
+ *   native plugin / extension platforms (opencode, kilo, openclaw, pi, omp):
+ *     apply the platform's config or extension wrapper automatically.
  *
- *   UI-only (jetbrains-copilot): print the exact UI steps.
+ *   UI-only MCP (jetbrains-copilot): write hooks automatically, then print
+ *     the exact MCP Settings UI step we cannot inspect/write safely.
  *
  *   TOML (codex): print the manual snippet — deferred until we wire a parser.
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, rmdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { homedir } from "node:os";
+import { pathToFileURL } from "node:url";
 import * as p from "@clack/prompts";
 import color from "picocolors";
 
 import { detectPlatform, getAdapter } from "./adapters/detect.js";
 import { REGISTERED_PLATFORM_IDS } from "./adapters/registry.js";
+import { antigravityMcpConfigPath } from "./adapters/antigravity/index.js";
 import { zedSettingsPath } from "./adapters/zed/index.js";
 import type { PlatformId } from "./adapters/types.js";
 import { parseJsonc } from "./util/jsonc.js";
@@ -119,6 +122,64 @@ function writeJsonAtomic(path: string, obj: unknown): void {
   }
 }
 
+function readPackageVersion(pluginRoot: string): string {
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(pluginRoot, "package.json"), "utf-8")) as { version?: unknown };
+    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+function fileText(path: string): string | null {
+  try {
+    return readFileSync(path, "utf-8");
+  } catch {
+    return null;
+  }
+}
+
+function writeTextIfChanged(
+  path: string,
+  desired: string,
+  opts: { check: boolean; label: string },
+): { changed: boolean; desc: string } {
+  const current = fileText(path);
+  if (current === desired) {
+    return { changed: false, desc: `${opts.label}: up-to-date` };
+  }
+  if (opts.check) {
+    return { changed: true, desc: `${opts.label}: WOULD WRITE ${path}` };
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, desired, "utf-8");
+  return { changed: true, desc: `${opts.label}: wrote ${path}` };
+}
+
+function upsertManagedTextBlock(
+  path: string,
+  blockBody: string,
+  opts: { check: boolean; label: string },
+): { changed: boolean; desc: string } {
+  const start = "<!-- context-mode:setup:start -->";
+  const end = "<!-- context-mode:setup:end -->";
+  const block = `${start}\n${blockBody.trimEnd()}\n${end}\n`;
+  const current = fileText(path) ?? "";
+  const re = new RegExp(`${start.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\S]*?${end.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n?`);
+  const next = re.test(current)
+    ? current.replace(re, block)
+    : `${current.trimEnd()}${current.trimEnd() ? "\n\n" : ""}${block}`;
+  if (current === next) {
+    return { changed: false, desc: `${opts.label}: up-to-date` };
+  }
+  if (opts.check) {
+    return { changed: true, desc: `${opts.label}: WOULD UPSERT ${path}` };
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, next, "utf-8");
+  return { changed: true, desc: `${opts.label}: upserted ${path}` };
+}
+
 /**
  * Shallow-merge `desired` over any existing object value so a user's extra
  * fields on the context-mode server entry (e.g. `env` / `args`) survive a
@@ -197,15 +258,11 @@ const MCP_REGISTRATIONS: Partial<Record<PlatformId, McpRegHandler>> = {
   },
   "antigravity": {
     label: "Antigravity mcp_config.json mcpServers",
-    // Antigravity nests its MCP config under ~/.gemini/antigravity/ and the
-    // file is literally `mcp_config.json` (NOT mcp.json). The AntigravityAdapter
-    // getConfigDir() is home-rooted and ignores projectDir, and
-    // checkPluginRegistration() — the file `doctor` reads — reads exactly this
-    // path. So setup must write the same home-rooted file; scope is ignored.
-    // Verified against src/adapters/antigravity/index.ts + docs/platform-support.md
-    // + antigravity.google/docs/mcp. Fixes the 3-axis setup↔doctor divergence
-    // (wrong dir .antigravity vs .gemini/antigravity, wrong filename, wrong scope).
-    resolvePath: () => resolve(homedir(), ".gemini", "antigravity", "mcp_config.json"),
+    // Antigravity Editor and Antigravity CLI use separate global MCP config
+    // roots. The CLI advertises ANTIGRAVITY_CLI_ALIAS; otherwise default to
+    // the Editor path so setup/doctor do not green-light a file the Editor
+    // never loads.
+    resolvePath: () => antigravityMcpConfigPath(),
     containerKey: "mcpServers",
   },
   "zed": {
@@ -229,6 +286,12 @@ const MCP_REGISTRATIONS: Partial<Record<PlatformId, McpRegHandler>> = {
     // crates/settings_content/src/project.rs + zed.dev/docs/ai/mcp.
     // (Loop-1 workflow finding.)
     desired: { command: "context-mode" },
+  },
+  "omp": {
+    label: "OMP agent mcp.json mcpServers",
+    resolvePath: () =>
+      resolve(process.env.PI_CODING_AGENT_DIR ?? resolve(homedir(), ".omp", "agent"), "mcp.json"),
+    containerKey: "mcpServers",
   },
 };
 
@@ -359,23 +422,11 @@ function applyMcpRegistration(
 const MANUAL_HINTS: Partial<Record<PlatformId, string>> = {
   "claude-code":
     "Installed via Claude Code marketplace. Run `/plugin install context-mode@context-mode` inside Claude Code.",
-  "opencode":
-    "OpenCode auto-installs the plugin from npm into ~/.cache/opencode/packages/... Add `\"context-mode\"` to the `plugin` array in ~/.config/opencode/opencode.json (or opencode.jsonc) — this is the file `context-mode doctor` reads. config.json is also loaded by OpenCode but doctor inspects opencode.json.",
-  "kilo":
-    "KiloCode auto-installs the plugin from npm into its package cache. Add `\"context-mode\"` to the `plugin` array (key is singular) in ~/.config/kilo/kilo.json (or kilo.jsonc) — this is the file `context-mode doctor` reads. Project kilo.json / .kilo/kilo.json / .kilocode/kilo.json also work. On Windows the global dir is %APPDATA%\\kilo; XDG_CONFIG_HOME is honored when set.",
-  "openclaw":
-    "OpenClaw uses a native gateway plugin. Run `npm run install:openclaw` from the plugin root.",
-  "pi":
-    "Pi loads extensions from ~/.pi/agent/extensions/context-mode/ (global, per earendil-works/pi docs/extensions.md) or .pi/extensions/context-mode/ (project). The PiAdapter (the path `context-mode doctor` checks) resolves the global ~/.pi/agent/extensions/context-mode/. (postinstall does not auto-install the Pi extension; see docs/setup-improvements.md DI-7.)",
-  "omp":
-    "OMP loads MCP servers from ~/.omp/agent/mcp.json (key: mcpServers) — the exact file+key `context-mode doctor` checks. Add: \"mcpServers\": { \"context-mode\": { \"command\": \"context-mode\" } }. (PI_CODING_AGENT_DIR overrides ~/.omp/agent.)",
   // NOTE: codex is intentionally NOT here. It is HOOK_CAPABLE with a real
   // configureAllHooks (writes ~/.codex/hooks.json + enables the feature
   // flag), so it must flow through the hooks path rather than short-circuit.
   // Its MCP registration is TOML (no MCP_REGISTRATIONS entry); see
   // POST_SETUP_NOTES["codex"] for the TOML snippet printed after hooks run.
-  "jetbrains-copilot":
-    "JetBrains GitHub Copilot adds MCP via the GitHub Copilot menu (NOT JetBrains' own 'AI Assistant'):\n    GitHub Copilot icon > Edit Settings > Model Context Protocol > Configure\n    (equivalently Settings > Tools > GitHub Copilot > Model Context Protocol (MCP) > Configure)\n  This opens an mcp.json with a top-level `servers` key:\n      { \"servers\": { \"context-mode\": { \"command\": \"context-mode\" } } }\n  Then drop `.github/hooks/context-mode.json` (see configs/jetbrains-copilot/hooks.json).",
 };
 
 /**
@@ -410,6 +461,8 @@ const UNINSTALL_HINTS: Partial<Record<PlatformId, string>> = {
 const POST_SETUP_NOTES: Partial<Record<PlatformId, string>> = {
   "codex":
     "Codex MCP registration uses TOML. Add this to ~/.codex/config.toml (hooks were configured automatically above):\n\n  [mcp_servers.context-mode]\n  command = \"context-mode\"\n\n(Automated TOML editing is on the roadmap.)",
+  "jetbrains-copilot":
+    "JetBrains Copilot hooks were written to `.github/hooks/context-mode.json`.\n\nMCP registration still lives behind JetBrains' GitHub Copilot UI:\n  GitHub Copilot icon > Edit Settings > Model Context Protocol > Configure\n\nUse a top-level `servers` object:\n  { \"servers\": { \"context-mode\": { \"command\": \"context-mode\" } } }",
 };
 
 /* ─────────── Hook configuration via adapter.configureAllHooks ─────────── */
@@ -417,6 +470,7 @@ const POST_SETUP_NOTES: Partial<Record<PlatformId, string>> = {
 const HOOK_CAPABLE: ReadonlySet<PlatformId> = new Set([
   "claude-code", "gemini-cli", "vscode-copilot", "cursor", "qwen-code",
   "kiro", "codex", // codex has its own hooks.json path
+  "jetbrains-copilot", "opencode", "kilo", "openclaw",
 ]);
 
 /**
@@ -430,25 +484,239 @@ const MCP_ONLY_PARADIGM: ReadonlySet<PlatformId> = new Set([
   "antigravity", "zed",
 ]);
 
+function piExtensionDir(): string {
+  return resolve(homedir(), ".pi", "agent", "extensions", "context-mode");
+}
+
+function ompAgentDir(): string {
+  return process.env.PI_CODING_AGENT_DIR ?? resolve(homedir(), ".omp", "agent");
+}
+
+function extensionPackageJson(
+  platform: Extract<PlatformId, "pi" | "omp">,
+  pluginRoot: string,
+): string {
+  const version = readPackageVersion(pluginRoot);
+  const manifestKey = platform === "pi" ? "pi" : "omp";
+  return JSON.stringify({
+    name: "context-mode",
+    version,
+    description: `Context-mode ${platform.toUpperCase()} extension`,
+    type: "module",
+    main: "index.js",
+    [manifestKey]: {
+      extensions: ["./index.js"],
+    },
+  }, null, 2) + "\n";
+}
+
+function extensionEntrypoint(pluginRoot: string, buildEntry: string): string {
+  return `export { default } from ${JSON.stringify(pathToFileURL(resolve(pluginRoot, buildEntry)).href)};\n`;
+}
+
+function applyPlatformInstall(
+  platform: PlatformId,
+  opts: { pluginRoot: string; check: boolean },
+): { changed: boolean; desc: string } | null {
+  const desc: string[] = [];
+  let changed = false;
+  const add = (result: { changed: boolean; desc: string }) => {
+    changed = changed || result.changed;
+    desc.push(result.desc);
+  };
+
+  if (platform === "pi") {
+    const dir = piExtensionDir();
+    add(writeTextIfChanged(
+      resolve(dir, "package.json"),
+      extensionPackageJson("pi", opts.pluginRoot),
+      { check: opts.check, label: "Pi extension package" },
+    ));
+    add(writeTextIfChanged(
+      resolve(dir, "index.js"),
+      extensionEntrypoint(opts.pluginRoot, "build/adapters/pi/extension.js"),
+      { check: opts.check, label: "Pi extension entrypoint" },
+    ));
+    return { changed, desc: `Pi extension: ${desc.join("; ")}` };
+  }
+
+  if (platform === "omp") {
+    const agentDir = ompAgentDir();
+    const extDir = resolve(agentDir, "extensions", "context-mode");
+    add(writeTextIfChanged(
+      resolve(extDir, "package.json"),
+      extensionPackageJson("omp", opts.pluginRoot),
+      { check: opts.check, label: "OMP extension package" },
+    ));
+    add(writeTextIfChanged(
+      resolve(extDir, "index.js"),
+      extensionEntrypoint(opts.pluginRoot, "build/adapters/omp/plugin.js"),
+      { check: opts.check, label: "OMP extension entrypoint" },
+    ));
+    const rules = fileText(resolve(opts.pluginRoot, "configs", "omp", "SYSTEM.md"))
+      ?? "# context-mode\n\nUse context-mode MCP tools for data-heavy operations.\n";
+    add(upsertManagedTextBlock(
+      resolve(agentDir, "SYSTEM.md"),
+      rules,
+      { check: opts.check, label: "OMP SYSTEM.md rules" },
+    ));
+    return { changed, desc: `OMP integration: ${desc.join("; ")}` };
+  }
+
+  return null;
+}
+
+export function refreshPlatformInstall(
+  platform: PlatformId,
+  opts: { pluginRoot: string; check?: boolean },
+): { changed: boolean; desc: string } | null {
+  return applyPlatformInstall(platform, {
+    pluginRoot: opts.pluginRoot,
+    check: opts.check ?? false,
+  });
+}
+
+function removePlatformInstall(
+  platform: PlatformId,
+  opts: { check: boolean },
+): { changed: boolean; desc: string } | null {
+  if (platform !== "pi" && platform !== "omp") return null;
+  const dir = platform === "pi"
+    ? piExtensionDir()
+    : resolve(ompAgentDir(), "extensions", "context-mode");
+  if (!existsSync(dir)) {
+    return { changed: false, desc: `${platform} extension: not installed` };
+  }
+  if (opts.check) {
+    return { changed: true, desc: `${platform} extension: WOULD REMOVE ${dir}` };
+  }
+  rmSync(dir, { recursive: true, force: true });
+  return { changed: true, desc: `${platform} extension: removed ${dir}` };
+}
+
+interface FileSnapshot {
+  path: string;
+  existed: boolean;
+  content?: Buffer;
+  nearestExistingDir: string;
+}
+
+function nearestExistingDir(path: string): string {
+  let current = dirname(path);
+  while (!existsSync(current)) {
+    const parent = dirname(current);
+    if (parent === current) return current;
+    current = parent;
+  }
+  return current;
+}
+
+function snapshotFiles(paths: string[]): FileSnapshot[] {
+  return [...new Set(paths)].map((path) => ({
+    path,
+    existed: existsSync(path),
+    content: existsSync(path) ? readFileSync(path) : undefined,
+    nearestExistingDir: nearestExistingDir(path),
+  }));
+}
+
+function pruneEmptyCreatedDirs(fromDir: string, stopDir: string): void {
+  let current = fromDir;
+  while (current !== stopDir && dirname(current) !== current) {
+    try {
+      rmdirSync(current);
+    } catch {
+      break;
+    }
+    current = dirname(current);
+  }
+}
+
+function restoreSnapshots(snapshots: FileSnapshot[]): void {
+  for (const snap of snapshots) {
+    if (snap.existed) {
+      mkdirSync(dirname(snap.path), { recursive: true });
+      writeFileSync(snap.path, snap.content ?? Buffer.from(""));
+    } else if (existsSync(snap.path)) {
+      rmSync(snap.path, { force: true });
+      pruneEmptyCreatedDirs(dirname(snap.path), snap.nearestExistingDir);
+    }
+  }
+}
+
+function hookConfigPaths(platform: PlatformId, projectDir: string): string[] {
+  const xdgRoot = process.platform === "win32"
+    ? (process.env.APPDATA || resolve(homedir(), "AppData", "Roaming"))
+    : (process.env.XDG_CONFIG_HOME || resolve(homedir(), ".config"));
+  switch (platform) {
+    case "opencode":
+      return [
+        resolve(projectDir, "opencode.json"),
+        resolve(projectDir, "opencode.jsonc"),
+        resolve(projectDir, ".opencode", "opencode.json"),
+        resolve(projectDir, ".opencode", "opencode.jsonc"),
+        resolve(xdgRoot, "opencode", "opencode.json"),
+        resolve(xdgRoot, "opencode", "opencode.jsonc"),
+      ];
+    case "kilo":
+      return [
+        resolve(projectDir, "kilo.json"),
+        resolve(projectDir, "kilo.jsonc"),
+        resolve(projectDir, ".kilo", "kilo.json"),
+        resolve(projectDir, ".kilo", "kilo.jsonc"),
+        resolve(projectDir, ".kilocode", "kilo.json"),
+        resolve(projectDir, ".kilocode", "kilo.jsonc"),
+        resolve(xdgRoot, "kilo", "kilo.json"),
+        resolve(xdgRoot, "kilo", "kilo.jsonc"),
+      ];
+    case "openclaw":
+      return [
+        resolve(projectDir, "openclaw.json"),
+        resolve(projectDir, ".openclaw", "openclaw.json"),
+        resolve(homedir(), ".openclaw", "openclaw.json"),
+      ];
+    case "kiro":
+      return [
+        resolve(homedir(), ".kiro", "agents", "default.json"),
+      ];
+    case "codex":
+      return [
+        resolve(homedir(), ".codex", "config.toml"),
+        resolve(homedir(), ".codex", "hooks.json"),
+      ];
+    case "vscode-copilot":
+    case "jetbrains-copilot":
+      return [resolve(projectDir, ".github", "hooks", "context-mode.json")];
+    default:
+      return [];
+  }
+}
+
 async function applyHooksViaAdapter(
   platform: PlatformId,
   pluginRoot: string,
   check: boolean,
+  projectDir: string,
 ): Promise<{ changed: boolean; desc: string }> {
   if (!HOOK_CAPABLE.has(platform)) {
     return { changed: false, desc: "Hooks: not applicable for this platform" };
   }
-  // Items DI-1 + DI-6 — `configureAllHooks` is idempotent across all
-  // hook-capable adapters (claude-code, gemini-cli, vscode-copilot, cursor,
-  // qwen-code, codex): it skips the write and returns an empty `changes`
-  // array when the on-disk entries already match desired. In --check mode we
-  // do NOT run it (it is destructive) and it does NOT contribute to the drift
-  // exit code (the caller ignores `changed` here); we just print an info line.
   if (check) {
-    return {
-      changed: false,
-      desc: "Hooks: idempotent — a real `context-mode setup` refreshes them (no-op when already current)",
-    };
+    const adapter = await getAdapter(platform);
+    const paths = [
+      adapter.getSettingsPath(),
+      ...hookConfigPaths(platform, projectDir),
+    ];
+    const snapshots = snapshotFiles(paths);
+    try {
+      const changes = adapter.configureAllHooks(pluginRoot);
+      const changed = changes.length > 0;
+      return changed
+        ? { changed: true, desc: `Hooks: WOULD WRITE ${changes.join("; ")}` }
+        : { changed: false, desc: "Hooks: up-to-date" };
+    } finally {
+      restoreSnapshots(snapshots);
+    }
   }
   const adapter = await getAdapter(platform);
   const changes = adapter.configureAllHooks(pluginRoot);
@@ -544,6 +812,19 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
   // ── Uninstall path — Item A4 ──
   if (opts.uninstall) {
     try {
+      const installRemoval = removePlatformInstall(platform, { check: !!opts.check });
+      if (installRemoval) {
+        if (installRemoval.changed) {
+          if (opts.check) driftSeen = true;
+          else outcome = "applied";
+          p.log.success(color.green(installRemoval.desc));
+          changes.push(installRemoval.desc);
+        } else {
+          p.log.info(color.dim(installRemoval.desc));
+          changes.push(installRemoval.desc);
+        }
+      }
+
       const r = removeMcpRegistration(platform, {
         check: !!opts.check,
         scope,
@@ -591,16 +872,39 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
     return 0;
   }
 
-  // ── 1. Hooks (adapter.configureAllHooks) ──
-  // NOTE: in --check mode, hooks do NOT contribute to drift/exit-code. We
-  // cannot truly dry-run configureAllHooks (it is destructive) and the
-  // adapters are idempotent, so a phantom "hooks would change" must not make
-  // `--check` always exit 1. Only MCP registration (deterministic, real
-  // dry-run) drives the drift exit code. (Second-pass workflow finding.)
+  // ── 0. Platform package/extension install (Pi/OMP) ──
   try {
-    const hookResult = await applyHooksViaAdapter(platform, opts.pluginRoot, !!opts.check);
+    const platformInstall = applyPlatformInstall(platform, {
+      pluginRoot: opts.pluginRoot,
+      check: !!opts.check,
+    });
+    if (platformInstall) {
+      if (platformInstall.changed) {
+        if (opts.check) driftSeen = true;
+        else outcome = "applied";
+        p.log.success(color.green(platformInstall.desc));
+      } else {
+        p.log.info(color.dim(platformInstall.desc));
+      }
+      changes.push(platformInstall.desc);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    p.log.error(color.red(`Platform install: FAIL — ${msg}`));
+    warnings.push(`platform install: ${msg}`);
+    hadFailure = true;
+  }
+
+  // ── 1. Hooks (adapter.configureAllHooks) ──
+  try {
+    const hookResult = await applyHooksViaAdapter(platform, opts.pluginRoot, !!opts.check, projectDir);
     if (opts.check) {
-      p.log.info(color.dim(hookResult.desc));
+      if (hookResult.changed) {
+        driftSeen = true;
+        p.log.success(color.green(hookResult.desc));
+      } else {
+        p.log.info(color.dim(hookResult.desc));
+      }
     } else if (hookResult.changed) {
       outcome = "applied";
       p.log.success(color.green(hookResult.desc));
@@ -663,7 +967,7 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
     return 1;
   }
   if (opts.check) {
-    p.outro(color.green("No MCP-registration drift. (Hooks are refreshed idempotently on a real run.)"));
+    p.outro(color.green("No setup drift."));
     return 0;
   }
   if (outcome === "applied") {

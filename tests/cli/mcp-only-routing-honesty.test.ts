@@ -24,12 +24,12 @@ const setupSrc = readFileSync(resolve(REPO_ROOT, "src", "setup.ts"), "utf-8");
 
 describe("MCP-only routing honesty (Item E2)", () => {
   test("doctor warns about ~60% fidelity for mcp-only paradigm", () => {
-    // The warn must reference the paradigm signal so it stays accurate
-    // when adapter #16 with `mcp-only` paradigm joins.
-    expect(cliSrc).toMatch(/paradigm\s*===?\s*["']mcp-only["']/);
+    // Pi/OMP use MCP-only adapter delivery but have extension/plugin hook
+    // surfaces, so doctor warns only for true best-effort routing hosts.
+    expect(cliSrc).toMatch(/bestEffortRoutingPlatforms/);
     // The fidelity number and the phrase "best-effort" must appear in
-    // the same neighborhood as the paradigm check.
-    const idx = cliSrc.search(/paradigm\s*===?\s*["']mcp-only["']/);
+    // the same neighborhood as the explicit platform set.
+    const idx = cliSrc.search(/bestEffortRoutingPlatforms/);
     expect(idx).toBeGreaterThan(-1);
     const window = cliSrc.slice(idx, idx + 600);
     expect(window).toMatch(/best-effort/i);

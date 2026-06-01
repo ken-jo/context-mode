@@ -5,7 +5,8 @@
  *
  * Antigravity hook specifics:
  *   - NO hook support (MCP-only, same as Codex CLI)
- *   - Config: ~/.gemini/antigravity/mcp_config.json (JSON format)
+ *   - Editor config: ~/.gemini/antigravity/mcp_config.json (JSON format)
+ *   - CLI config: ~/.gemini/antigravity-cli/mcp_config.json (when ANTIGRAVITY_CLI_ALIAS is set)
  *   - MCP: full support via mcpServers in mcp_config.json
  *   - All capabilities are false — MCP is the only integration path
  *   - Session dir: ~/.gemini/context-mode/sessions/
@@ -28,6 +29,27 @@ import { homedir } from "node:os";
 
 import { BaseAdapter } from "../base.js";
 import { parseJsonc } from "../../util/jsonc.js";
+
+export function antigravityMcpConfigPath(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return resolve(
+    homedir(),
+    ".gemini",
+    env.ANTIGRAVITY_CLI_ALIAS ? "antigravity-cli" : "antigravity",
+    "mcp_config.json",
+  );
+}
+
+export function antigravityConfigDir(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return resolve(
+    homedir(),
+    ".gemini",
+    env.ANTIGRAVITY_CLI_ALIAS ? "antigravity-cli" : "antigravity",
+  );
+}
 
 import type {
   HookAdapter,
@@ -109,15 +131,16 @@ export class AntigravityAdapter extends BaseAdapter implements HookAdapter {
   // ── Configuration ──────────────────────────────────────
 
   getSettingsPath(): string {
-    return resolve(homedir(), ".gemini", "antigravity", "mcp_config.json");
+    return antigravityMcpConfigPath();
   }
 
   /**
-   * Antigravity nests under ~/.gemini/antigravity/. Always absolute.
+   * Antigravity nests under either ~/.gemini/antigravity/ or
+   * ~/.gemini/antigravity-cli/. Always absolute.
    * `_projectDir` accepted for interface symmetry but unused — home-rooted.
    */
   getConfigDir(_projectDir?: string): string {
-    return resolve(homedir(), ".gemini", "antigravity");
+    return antigravityConfigDir();
   }
 
   getInstructionFiles(): string[] {
@@ -129,7 +152,7 @@ export class AntigravityAdapter extends BaseAdapter implements HookAdapter {
   }
 
   readSettings(): Record<string, unknown> | null {
-    // ~/.gemini/antigravity/mcp_config.json is JSONC (shares Gemini's config
+    // Antigravity mcp_config.json is JSONC (shares Gemini's config
     // family) — parse tolerantly to match setup. (Loop-4 consistency fix.)
     try {
       const raw = readFileSync(this.getSettingsPath(), "utf-8");
@@ -177,13 +200,14 @@ export class AntigravityAdapter extends BaseAdapter implements HookAdapter {
         check: "MCP registration",
         status: "fail",
         message: "context-mode not found in mcpServers",
-        fix: "Add context-mode to mcpServers in ~/.gemini/antigravity/mcp_config.json",
+        fix: `Add context-mode to mcpServers in ${this.getSettingsPath()}`,
       };
     } catch {
       return {
         check: "MCP registration",
-        status: "warn",
-        message: "Could not read ~/.gemini/antigravity/mcp_config.json",
+        status: "fail",
+        message: `Could not read ${this.getSettingsPath()}`,
+        fix: "context-mode setup antigravity",
       };
     }
   }

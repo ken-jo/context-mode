@@ -17,6 +17,20 @@ function env(home: string) {
   };
 }
 
+const TSX_LOADER = resolve(process.cwd(), "node_modules", "tsx", "dist", "loader.mjs");
+
+function runTsEval(code: string, opts: { cwd: string; env: NodeJS.ProcessEnv | Record<string, string> }) {
+  return spawnSync(
+    process.execPath,
+    ["--import", TSX_LOADER, "--eval", code],
+    {
+      cwd: opts.cwd,
+      env: opts.env,
+      encoding: "utf-8",
+    },
+  );
+}
+
 describe("OpenCodeAdapter", () => {
   describe("OpenCode platform (default)", () => {
     let adapter: OpenCodeAdapter;
@@ -197,22 +211,12 @@ describe("OpenCodeAdapter", () => {
       const conf = join(home, ".config", "opencode");
       const file = join(conf, "opencode.json");
       const src = resolve(process.cwd(), "src", "adapters", "opencode", "index.ts");
-      const tsx = resolve(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
       mkdirSync(dir, { recursive: true });
       mkdirSync(conf, { recursive: true });
       writeFileSync(file, JSON.stringify({ plugin: [] }, null, 2) + "\n");
-      const run = spawnSync(
-        process.execPath,
-        [
-          tsx,
-          "-e",
-          `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify({backup:a.backupSettings(),changes:a.configureAllHooks('/tmp/plugin')}))`,
-        ],
-        {
-          cwd: dir,
-          env: env(home),
-          encoding: "utf-8",
-        },
+      const run = runTsEval(
+        `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify({backup:a.backupSettings(),changes:a.configureAllHooks('/tmp/plugin')}))`,
+        { cwd: dir, env: env(home) },
       );
 
       expect(run.status).toBe(0);
@@ -233,7 +237,6 @@ describe("OpenCodeAdapter", () => {
       const conf = join(home, ".config", "opencode");
       const file = join(conf, "opencode.json");
       const src = resolve(process.cwd(), "src", "adapters", "opencode", "index.ts");
-      const tsx = resolve(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
       mkdirSync(dir, { recursive: true });
       mkdirSync(conf, { recursive: true });
       writeFileSync(file, JSON.stringify({
@@ -247,14 +250,9 @@ describe("OpenCodeAdapter", () => {
         plugin: ["context-mode"],
       }, null, 2) + "\n");
 
-      const run = spawnSync(
-        process.execPath,
-        [
-          tsx,
-          "-e",
-          `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify(a.configureAllHooks('/tmp/plugin')))`,
-        ],
-        { cwd: dir, env: env(home), encoding: "utf-8" },
+      const run = runTsEval(
+        `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify(a.configureAllHooks('/tmp/plugin')))`,
+        { cwd: dir, env: env(home) },
       );
 
       expect(run.status).toBe(0);
@@ -305,23 +303,13 @@ describe("OpenCodeAdapter", () => {
       const home = join(root, "home");
       const conf = join(home, ".config", "opencode");
       const src = resolve(process.cwd(), "src", "adapters", "opencode", "index.ts");
-      const tsx = resolve(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
       mkdirSync(dir, { recursive: true });
       mkdirSync(conf, { recursive: true });
       writeFileSync(join(conf, "opencode.json"), JSON.stringify({ plugin: ["other-plugin"] }, null, 2) + "\n");
       writeFileSync(resolve(dir, "opencode.json"), JSON.stringify({ plugin: ["context-mode"] }, null, 2) + "\n");
-      const run = spawnSync(
-        process.execPath,
-        [
-          tsx,
-          "-e",
-          `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();a.readSettings();console.log(JSON.stringify({path:a.settingsPath}))`,
-        ],
-        {
-          cwd: dir,
-          env: env(home),
-          encoding: "utf-8",
-        },
+      const run = runTsEval(
+        `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();a.readSettings();console.log(JSON.stringify({path:a.settingsPath}))`,
+        { cwd: dir, env: env(home) },
       );
 
       expect(run.status).toBe(0);
@@ -337,23 +325,13 @@ describe("OpenCodeAdapter", () => {
       const home = join(root, "home");
       const conf = join(home, ".config", "opencode");
       const src = resolve(process.cwd(), "src", "adapters", "opencode", "index.ts");
-      const tsx = resolve(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
       mkdirSync(dir, { recursive: true });
       mkdirSync(conf, { recursive: true });
       writeFileSync(join(conf, "opencode.json"), JSON.stringify({ plugin: ["other-plugin"] }, null, 2) + "\n");
       writeFileSync(resolve(dir, "opencode.json"), JSON.stringify({ plugin: [] }, null, 2) + "\n");
-      const run = spawnSync(
-        process.execPath,
-        [
-          tsx,
-          "-e",
-          `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();a.readSettings();console.log(JSON.stringify({path:a.settingsPath}))`,
-        ],
-        {
-          cwd: dir,
-          env: env(home),
-          encoding: "utf-8",
-        },
+      const run = runTsEval(
+        `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();a.readSettings();console.log(JSON.stringify({path:a.settingsPath}))`,
+        { cwd: dir, env: env(home) },
       );
 
       expect(run.status).toBe(0);
@@ -367,7 +345,6 @@ describe("OpenCodeAdapter", () => {
       const root = mkdtempSync(join(tmpdir(), "opencode-adapter-"));
       const dir = join(root, "project");
       const src = resolve(process.cwd(), "src", "adapters", "opencode", "index.ts");
-      const tsx = resolve(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
       mkdirSync(dir, { recursive: true });
       writeFileSync(
         join(dir, "opencode.jsonc"),
@@ -379,14 +356,9 @@ describe("OpenCodeAdapter", () => {
 }
 `,
       );
-      const run = spawnSync(
-        process.execPath,
-        [
-          tsx,
-          "-e",
-          `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify(a.readSettings()))`,
-        ],
-        { cwd: dir, env: env(join(root, "home")), encoding: "utf-8" },
+      const run = runTsEval(
+        `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify(a.readSettings()))`,
+        { cwd: dir, env: env(join(root, "home")) },
       );
       expect(run.status).toBe(0);
       expect(JSON.parse(run.stdout)).toEqual({ plugin: ["context-mode"], version: "1.0" });
@@ -397,18 +369,12 @@ describe("OpenCodeAdapter", () => {
       const root = mkdtempSync(join(tmpdir(), "opencode-adapter-"));
       const dir = join(root, "project");
       const src = resolve(process.cwd(), "src", "adapters", "opencode", "index.ts");
-      const tsx = resolve(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, "opencode.json"), JSON.stringify({ from: "json" }));
       writeFileSync(join(dir, "opencode.jsonc"), `{ /* comment */ "from": "jsonc" }`);
-      const run = spawnSync(
-        process.execPath,
-        [
-          tsx,
-          "-e",
-          `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify(a.readSettings()))`,
-        ],
-        { cwd: dir, env: env(join(root, "home")), encoding: "utf-8" },
+      const run = runTsEval(
+        `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify(a.readSettings()))`,
+        { cwd: dir, env: env(join(root, "home")) },
       );
       expect(run.status).toBe(0);
       expect(JSON.parse(run.stdout)).toEqual({ from: "json" });
@@ -419,7 +385,6 @@ describe("OpenCodeAdapter", () => {
       const root = mkdtempSync(join(tmpdir(), "opencode-adapter-"));
       const dir = join(root, "project");
       const src = resolve(process.cwd(), "src", "adapters", "opencode", "index.ts");
-      const tsx = resolve(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
       mkdirSync(dir, { recursive: true });
       writeFileSync(
         join(dir, "opencode.jsonc"),
@@ -429,14 +394,9 @@ describe("OpenCodeAdapter", () => {
 }
 `,
       );
-      const run = spawnSync(
-        process.execPath,
-        [
-          tsx,
-          "-e",
-          `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify(a.configureAllHooks('/tmp/plugin')))`,
-        ],
-        { cwd: dir, env: env(join(root, "home")), encoding: "utf-8" },
+      const run = runTsEval(
+        `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify(a.configureAllHooks('/tmp/plugin')))`,
+        { cwd: dir, env: env(join(root, "home")) },
       );
       expect(run.status).toBe(0);
       expect(JSON.parse(run.stdout)).toEqual(["Added context-mode to plugin array"]);
@@ -451,17 +411,11 @@ describe("OpenCodeAdapter", () => {
       const root = mkdtempSync(join(tmpdir(), "opencode-adapter-"));
       const dir = join(root, "project");
       const src = resolve(process.cwd(), "src", "adapters", "opencode", "index.ts");
-      const tsx = resolve(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
       mkdirSync(dir, { recursive: true });
       // No config file at all
-      const run = spawnSync(
-        process.execPath,
-        [
-          tsx,
-          "-e",
-          `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify(a.validateHooks('/tmp')))`,
-        ],
-        { cwd: dir, env: env(join(root, "home")), encoding: "utf-8" },
+      const run = runTsEval(
+        `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify(a.validateHooks('/tmp')))`,
+        { cwd: dir, env: env(join(root, "home")) },
       );
       expect(run.status).toBe(0);
       const results = JSON.parse(run.stdout);
@@ -477,22 +431,12 @@ describe("OpenCodeAdapter", () => {
       const conf = join(dir, ".opencode");
       const file = join(conf, "opencode.json");
       const src = resolve(process.cwd(), "src", "adapters", "opencode", "index.ts");
-      const tsx = resolve(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
       mkdirSync(dir, { recursive: true });
       mkdirSync(conf, { recursive: true });
       writeFileSync(file, JSON.stringify({ plugin: [] }, null, 2) + "\n");
-      const run = spawnSync(
-        process.execPath,
-        [
-          tsx,
-          "-e",
-          `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify(a.configureAllHooks('/tmp/plugin')))`,
-        ],
-        {
-          cwd: dir,
-          env: env(home),
-          encoding: "utf-8",
-        },
+      const run = runTsEval(
+        `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify(a.configureAllHooks('/tmp/plugin')))`,
+        { cwd: dir, env: env(home) },
       );
 
       expect(run.status).toBe(0);

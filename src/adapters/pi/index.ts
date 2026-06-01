@@ -178,9 +178,18 @@ export class PiAdapter extends BaseAdapter implements HookAdapter {
       "context-mode",
       "package.json",
     );
+    const entrypointPath = resolve(
+      homedir(),
+      ".pi",
+      "agent",
+      "extensions",
+      "context-mode",
+      "index.js",
+    );
     try {
       const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-      if (pkg?.name === "context-mode") {
+      const entrypoint = readFileSync(entrypointPath, "utf-8");
+      if (pkg?.name === "context-mode" && entrypoint.includes("extension.js")) {
         return {
           check: "Pi extension registration",
           status: "pass",
@@ -189,15 +198,16 @@ export class PiAdapter extends BaseAdapter implements HookAdapter {
       }
       return {
         check: "Pi extension registration",
-        status: "warn",
-        message: `Unexpected package at ${pkgPath}`,
+        status: "fail",
+        message: `Incomplete context-mode extension at ${pkgPath}`,
+        fix: "context-mode setup pi",
       };
     } catch {
       return {
         check: "Pi extension registration",
         status: "fail",
-        message: `context-mode not found at ${pkgPath}`,
-        fix: "Run: context-mode upgrade",
+        message: `context-mode extension wrapper not found at ${pkgPath} / ${entrypointPath}`,
+        fix: "context-mode setup pi",
       };
     }
   }

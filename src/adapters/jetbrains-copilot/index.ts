@@ -16,6 +16,7 @@ import { join, resolve } from "node:path";
 
 import { CopilotBaseAdapter } from "../copilot-base.js";
 import type { CopilotHookInput, CopilotHookModule } from "../copilot-base.js";
+import { parseJsonc } from "../../util/jsonc.js";
 
 import type {
   DiagnosticResult,
@@ -85,7 +86,7 @@ export class JetBrainsCopilotAdapter extends CopilotBaseAdapter {
 
     try {
       const raw = readFileSync(this.getSettingsPath(), "utf-8");
-      const config = JSON.parse(raw) as Record<string, unknown>;
+      const config = parseJsonc<Record<string, unknown>>(raw) ?? {};
       const hooks = config.hooks as Record<string, unknown> | undefined;
 
       if (hooks?.[JETBRAINS_HOOK_NAMES.PRE_TOOL_USE]) {
@@ -99,7 +100,7 @@ export class JetBrainsCopilotAdapter extends CopilotBaseAdapter {
           check: "PreToolUse hook",
           status: "fail",
           message: "PreToolUse not found in .github/hooks/context-mode.json",
-          fix: "context-mode upgrade",
+          fix: "context-mode setup jetbrains-copilot",
         });
       }
 
@@ -114,7 +115,7 @@ export class JetBrainsCopilotAdapter extends CopilotBaseAdapter {
           check: "SessionStart hook",
           status: "fail",
           message: "SessionStart not found in .github/hooks/context-mode.json",
-          fix: "context-mode upgrade",
+          fix: "context-mode setup jetbrains-copilot",
         });
       }
     } catch {
@@ -122,7 +123,7 @@ export class JetBrainsCopilotAdapter extends CopilotBaseAdapter {
         check: "Hook configuration",
         status: "fail",
         message: "Could not read .github/hooks/context-mode.json",
-        fix: "context-mode upgrade",
+        fix: "context-mode setup jetbrains-copilot",
       });
     }
 
@@ -151,7 +152,7 @@ export class JetBrainsCopilotAdapter extends CopilotBaseAdapter {
   getInstalledVersion(): string {
     // JetBrains Copilot registers MCP servers via Settings UI (not
     // CLI-inspectable). All we can check is whether hook config has been
-    // written to .github/hooks/context-mode.json by `context-mode upgrade`.
+    // written to .github/hooks/context-mode.json by `context-mode setup`.
     const settings = this.readSettings();
     const hooks = settings?.hooks as Record<string, unknown> | undefined;
     if (hooks && Object.keys(hooks).length > 0) return "configured";

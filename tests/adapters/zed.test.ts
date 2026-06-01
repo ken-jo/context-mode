@@ -1,5 +1,6 @@
 import "../setup-home";
 import { describe, it, expect, beforeEach } from "vitest";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { ZedAdapter } from "../../src/adapters/zed/index.js";
@@ -123,6 +124,31 @@ describe("ZedAdapter", () => {
       expect(sessionDir).toBe(
         join(homedir(), ".config", "zed", "context-mode", "sessions"),
       );
+    });
+  });
+
+  describe("plugin registration", () => {
+    it("fails with setup remediation when settings.json is missing", () => {
+      rmSync(adapter.getSettingsPath(), { force: true });
+
+      expect(adapter.checkPluginRegistration()).toMatchObject({
+        check: "MCP registration",
+        status: "fail",
+        fix: "context-mode setup zed",
+      });
+    });
+
+    it("does not pass when context-mode appears only in a JSONC comment", () => {
+      const settingsPath = adapter.getSettingsPath();
+      mkdirSync(resolve(settingsPath, ".."), { recursive: true });
+      writeFileSync(
+        settingsPath,
+        `{
+          // context-mode mentioned in a comment only
+          "context_servers": {}
+        }`,
+      );
+      expect(adapter.checkPluginRegistration().status).toBe("fail");
     });
   });
 });

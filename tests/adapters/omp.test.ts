@@ -1,5 +1,6 @@
 import "../setup-home";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { OMPAdapter } from "../../src/adapters/omp/index.js";
@@ -30,19 +31,19 @@ describe("OMPAdapter", () => {
       expect(adapter.name).toBe("OMP");
     });
 
-    it("paradigm is mcp-only", () => {
-      expect(adapter.paradigm).toBe("mcp-only");
+    it("paradigm is ts-plugin", () => {
+      expect(adapter.paradigm).toBe("ts-plugin");
     });
   });
 
   // ── Capabilities ──────────────────────────────────────
 
   describe("capabilities", () => {
-    it("all capabilities are false", () => {
-      expect(adapter.capabilities.preToolUse).toBe(false);
-      expect(adapter.capabilities.postToolUse).toBe(false);
-      expect(adapter.capabilities.preCompact).toBe(false);
-      expect(adapter.capabilities.sessionStart).toBe(false);
+    it("reports OMP plugin hook capabilities", () => {
+      expect(adapter.capabilities.preToolUse).toBe(true);
+      expect(adapter.capabilities.postToolUse).toBe(true);
+      expect(adapter.capabilities.preCompact).toBe(true);
+      expect(adapter.capabilities.sessionStart).toBe(true);
       expect(adapter.capabilities.canModifyArgs).toBe(false);
       expect(adapter.capabilities.canModifyOutput).toBe(false);
       expect(adapter.capabilities.canInjectSessionContext).toBe(false);
@@ -54,25 +55,25 @@ describe("OMPAdapter", () => {
   describe("parse methods", () => {
     it("parsePreToolUseInput throws", () => {
       expect(() => adapter.parsePreToolUseInput({})).toThrow(
-        /OMP hooks not wired by this adapter/,
+        /JSON-stdio dispatch is not used/,
       );
     });
 
     it("parsePostToolUseInput throws", () => {
       expect(() => adapter.parsePostToolUseInput({})).toThrow(
-        /OMP hooks not wired by this adapter/,
+        /JSON-stdio dispatch is not used/,
       );
     });
 
     it("parsePreCompactInput throws", () => {
       expect(() => adapter.parsePreCompactInput({})).toThrow(
-        /OMP hooks not wired by this adapter/,
+        /JSON-stdio dispatch is not used/,
       );
     });
 
     it("parseSessionStartInput throws", () => {
       expect(() => adapter.parseSessionStartInput({})).toThrow(
-        /OMP hooks not wired by this adapter/,
+        /JSON-stdio dispatch is not used/,
       );
     });
   });
@@ -179,6 +180,32 @@ describe("OMPAdapter", () => {
       //   - SYSTEM.md: packages/coding-agent/src/main.ts:394-402
       //   - AGENTS.md: packages/coding-agent/src/discovery/agents-md.ts:25-29
       expect(adapter.getInstructionFiles()).toEqual(["SYSTEM.md", "AGENTS.md"]);
+    });
+  });
+
+  describe("plugin registration", () => {
+    it("fails with setup remediation when mcp.json is missing", () => {
+      rmSync(adapter.getSettingsPath(), { force: true });
+
+      expect(adapter.checkPluginRegistration()).toMatchObject({
+        check: "OMP plugin registration",
+        status: "fail",
+        fix: "context-mode setup omp",
+      });
+    });
+
+    it("fails when MCP exists but extension wrapper is missing", () => {
+      adapter.writeSettings({ mcpServers: { "context-mode": { command: "context-mode" } } });
+      rmSync(resolve(adapter.getAgentDir(), "extensions", "context-mode"), {
+        recursive: true,
+        force: true,
+      });
+
+      expect(adapter.checkPluginRegistration()).toMatchObject({
+        check: "OMP plugin registration",
+        status: "fail",
+        fix: "context-mode setup omp",
+      });
     });
   });
 });

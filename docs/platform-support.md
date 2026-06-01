@@ -4,13 +4,14 @@ This document provides a comprehensive comparison of all platforms supported by 
 
 ## Overview
 
-context-mode supports fifteen platforms across three hook paradigms:
+context-mode supports fifteen platforms across four hook paradigms:
 
 | Paradigm | Platforms |
 |----------|-----------|
 | **JSON stdin/stdout** | Claude Code, Gemini CLI, VS Code Copilot, JetBrains Copilot, Cursor, Codex CLI, Qwen Code |
 | **TS Plugin** | OpenCode, KiloCode, OpenClaw |
-| **MCP-only** | Antigravity, Kiro, Zed, Pi, OMP (Oh My Pi) |
+| **Agent extension/plugin** | Pi, OMP (Oh My Pi) |
+| **MCP-only** | Antigravity, Kiro, Zed |
 
 The MCP server layer is 100% portable and needs no adapter. Only the hook layer requires platform-specific adapters.
 
@@ -34,25 +35,25 @@ This puts the `context-mode` binary in PATH, which is required for:
 
 | Feature | Claude Code | Gemini CLI | VS Code Copilot | JetBrains Copilot | Cursor | OpenCode | Codex CLI | Antigravity | Kiro | OMP |
 |---------|-------------|------------|-----------------|-------------------|--------|----------|-----------|-------------|------|-----|
-| **Paradigm** | json-stdio | json-stdio | json-stdio | json-stdio | json-stdio | ts-plugin | json-stdio | mcp-only | mcp-only | mcp-only |
-| **PreToolUse equivalent** | `PreToolUse` | `BeforeTool` | `PreToolUse` | `PreToolUse` | `preToolUse` | `tool.execute.before` | `PreToolUse` | -- | -- | -- |
-| **PostToolUse equivalent** | `PostToolUse` | `AfterTool` | `PostToolUse` | `PostToolUse` | `postToolUse` | `tool.execute.after` | `PostToolUse` | -- | -- | -- |
-| **PreCompact equivalent** | `PreCompact` | `PreCompress` | `PreCompact` | `PreCompact` | -- | `experimental.session.compacting` | -- | -- | -- | -- |
-| **SessionStart** | `SessionStart` | `SessionStart` | `SessionStart` | `SessionStart` | -- (buggy in Cursor) | -- | `SessionStart` | -- | -- | -- |
+| **Paradigm** | json-stdio | json-stdio | json-stdio | json-stdio | json-stdio | ts-plugin | json-stdio | mcp-only | mcp-only | agent plugin + MCP |
+| **PreToolUse equivalent** | `PreToolUse` | `BeforeTool` | `PreToolUse` | `PreToolUse` | `preToolUse` | `tool.execute.before` | `PreToolUse` | -- | -- | `tool_call` |
+| **PostToolUse equivalent** | `PostToolUse` | `AfterTool` | `PostToolUse` | `PostToolUse` | `postToolUse` | `tool.execute.after` | `PostToolUse` | -- | -- | `tool_result` |
+| **PreCompact equivalent** | `PreCompact` | `PreCompress` | `PreCompact` | `PreCompact` | -- | `experimental.session.compacting` | -- | -- | -- | `session_before_compact` |
+| **SessionStart** | `SessionStart` | `SessionStart` | `SessionStart` | `SessionStart` | -- (buggy in Cursor) | -- | `SessionStart` | -- | -- | `session_start` |
 | **Stop equivalent** | -- | -- | `Stop` | `Stop` | `stop` | -- | `Stop` | -- | -- | -- |
 | **Can modify args** | Yes | Yes | Yes | Yes | Yes | Yes | No | -- | -- | -- |
 | **Can modify output** | Yes | Yes | Yes | Yes | No | Yes (caveat) | No | -- | -- | -- |
 | **Can inject session context** | Yes | Yes | Yes | Yes | Yes | -- | Yes | -- | -- | -- |
-| **Can block tools** | Yes | Yes | Yes | Yes | Yes | Yes (throw) | Yes | -- | -- | -- |
-| **Config location** | `~/.claude/settings.json` | `~/.gemini/settings.json` | `.github/hooks/*.json` | `.github/hooks/*.json` | `.cursor/hooks.json` or `~/.cursor/hooks.json` | `opencode.json` | `~/.codex/hooks.json` + `~/.codex/config.toml` | `~/.gemini/antigravity/mcp_config.json` | `~/.kiro/settings/mcp.json` | `~/.omp/agent/mcp.json` |
+| **Can block tools** | Yes | Yes | Yes | Yes | Yes | Yes (throw) | Yes | -- | -- | Yes |
+| **Config location** | `~/.claude/settings.json` | `~/.gemini/settings.json` | `.github/hooks/*.json` | `.github/hooks/*.json` | `.cursor/hooks.json` or `~/.cursor/hooks.json` | `opencode.json` | `~/.codex/hooks.json` + `~/.codex/config.toml` | `~/.gemini/antigravity/mcp_config.json` (Editor) / `~/.gemini/antigravity-cli/mcp_config.json` (CLI) | `~/.kiro/settings/mcp.json` | `~/.omp/agent/mcp.json` + `~/.omp/agent/extensions/context-mode/` |
 | **Session ID field** | `session_id` | `session_id` | `sessionId` (camelCase) | `sessionId` (camelCase) | `conversation_id` | `sessionID` (camelCase) | N/A | N/A | N/A | N/A |
 | **Project dir env** | `CLAUDE_PROJECT_DIR` | `GEMINI_PROJECT_DIR` | `CLAUDE_PROJECT_DIR` | `CLAUDE_PROJECT_DIR` | stdin `workspace_roots` | `ctx.directory` (plugin init) | N/A | N/A | N/A | `PI_CODING_AGENT_DIR` |
 | **MCP/tool naming** | `mcp__server__tool` | `mcp__server__tool` | `f1e_` prefix | `f1e_` prefix | `MCP:<tool>` in hook payloads | native `ctx_*` plugin tools | `mcp__server__tool` | `mcp__server__tool` | `mcp__server__tool` | `mcp__server__tool` |
-| **Hook command format** | `context-mode hook claude-code <event>` | `context-mode hook gemini-cli <event>` | `context-mode hook vscode-copilot <event>` | `context-mode hook jetbrains-copilot <event>` | `context-mode hook cursor <event>` | TS plugin (no command) | `context-mode hook codex <event>` | N/A | N/A |
-| **Hook registration** | settings.json hooks object | settings.json hooks object | `.github/hooks/*.json` | `.github/hooks/*.json` | `hooks.json` native hook arrays | opencode.json plugin array | `~/.codex/hooks.json` | N/A | N/A |
+| **Hook command format** | `context-mode hook claude-code <event>` | `context-mode hook gemini-cli <event>` | `context-mode hook vscode-copilot <event>` | `context-mode hook jetbrains-copilot <event>` | `context-mode hook cursor <event>` | TS plugin (no command) | `context-mode hook codex <event>` | N/A | N/A | OMP plugin (no command) |
+| **Hook registration** | settings.json hooks object | settings.json hooks object | `.github/hooks/*.json` | `.github/hooks/*.json` | `hooks.json` native hook arrays | opencode.json plugin array | `~/.codex/hooks.json` | N/A | N/A | extension wrapper + `mcp.json` |
 | **MCP server command** | `context-mode` (or plugin auto) | `context-mode` | `context-mode` | `context-mode` | `context-mode` | N/A (native plugin tools) | `context-mode` | `context-mode` | `context-mode` | `context-mode` |
 | **Plugin distribution** | Claude plugin registry | npm global | npm global | npm global | npm global | npm global | npm global | npm global | npm global |
-| **Session dir** | `~/.claude/context-mode/sessions/` | `~/.gemini/context-mode/sessions/` | `.github/context-mode/sessions/` or `~/.vscode/context-mode/sessions/` | `.github/context-mode/sessions/` | `~/.cursor/context-mode/sessions/` | `~/.config/opencode/context-mode/sessions/` | `~/.codex/context-mode/sessions/` | `~/.gemini/context-mode/sessions/` | `~/.kiro/context-mode/sessions/` |
+| **Session dir** | `~/.claude/context-mode/sessions/` | `~/.gemini/context-mode/sessions/` | `.github/context-mode/sessions/` or `~/.vscode/context-mode/sessions/` | `.github/context-mode/sessions/` | `~/.cursor/context-mode/sessions/` | `~/.config/opencode/context-mode/sessions/` | `~/.codex/context-mode/sessions/` | `~/.gemini/context-mode/sessions/` | `~/.kiro/context-mode/sessions/` | `~/.omp/context-mode/sessions/` |
 
 ### Legend
 
@@ -277,7 +278,8 @@ context-mode hook qwen-code userpromptsubmit
 Google Antigravity is an AI-powered IDE by Google/DeepMind. It shares the `~/.gemini/` directory structure with Gemini CLI but uses a separate config path for MCP servers. Antigravity does not expose a public hook API — only MCP integration is available.
 
 **Configuration:**
-- `~/.gemini/antigravity/mcp_config.json` (JSON format)
+- `~/.gemini/antigravity/mcp_config.json` for Antigravity Editor (JSON format)
+- `~/.gemini/antigravity-cli/mcp_config.json` for Antigravity CLI when `ANTIGRAVITY_CLI_ALIAS` is present
 - MCP servers configured in `mcpServers` object
 
 **Detection:**
@@ -303,7 +305,7 @@ Google Antigravity is an AI-powered IDE by Google/DeepMind. It shares the `~/.ge
 - Detection signal: `ANTIGRAVITY_CLI_ALIAS` env var (the canonical Antigravity marker checked by google-gemini/gemini-cli `packages/core/src/ide/detect-ide.ts`), listed before vscode-copilot in the env-var registry; falls back to MCP `clientInfo.name: "antigravity-client"` and the `~/.gemini/` config dir
 
 **Sources:**
-- Config path: [Gemini CLI Issue #16058](https://github.com/google-gemini/gemini-cli/issues/16058)
+- Config paths: [Antigravity MCP docs](https://antigravity.google/docs/mcp) and [Antigravity CLI plugins docs](https://antigravity.google/docs/cli-plugins)
 - MCP support: [Antigravity MCP docs](https://antigravity.google/docs/mcp)
 - clientInfo: [Apify MCP Client Capabilities Registry](https://github.com/apify/mcp-client-capabilities)
 

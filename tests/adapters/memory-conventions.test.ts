@@ -186,13 +186,13 @@ describe("Adapter memory conventions", () => {
 
   describe("AntigravityAdapter", () => {
     const a = new AntigravityAdapter();
-    it("getConfigDir is ~/.gemini/antigravity", () => {
+    it("getConfigDir is ~/.gemini/antigravity by default", () => {
       expect(a.getConfigDir()).toBe(join(homedir(), ".gemini", "antigravity"));
     });
     it("getInstructionFiles is ['GEMINI.md']", () => {
       expect(a.getInstructionFiles()).toEqual(["GEMINI.md"]);
     });
-    it("getMemoryDir is ~/.gemini/antigravity/memory", () => {
+    it("getMemoryDir is ~/.gemini/antigravity/memory by default", () => {
       expect(a.getMemoryDir()).toBe(
         join(homedir(), ".gemini", "antigravity", "memory"),
       );

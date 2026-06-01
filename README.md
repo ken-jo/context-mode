@@ -70,8 +70,8 @@ Context Mode is an MCP server that solves all four sides of this problem:
 > `setup` is idempotent (re-running is a no-op) and preserves any sibling
 > `mcpServers` / hooks entries you already had. `setup --uninstall` removes only the
 > context-mode entry. Per-platform details + escape-hatch JSON snippets are below
-> for users who prefer manual config or are on a host where the marketplace handles
-> install (Claude Code, OpenCode, Kilo, Pi, OMP).
+> for users who prefer manual config or are on a host where a marketplace or IDE UI
+> still owns part of the install (Claude Code, JetBrains Copilot MCP UI).
 
 The expanded sections below preserve the original per-platform notes so you can see
 exactly what `setup` writes (and roll your own when needed). Hook-capable platforms
@@ -427,7 +427,21 @@ Full configs: [`configs/cursor/hooks.json`](configs/cursor/hooks.json) | [`confi
 
 **Install:**
 
-1. Add to `opencode.json` in your project root (or `~/.config/opencode/opencode.json` for global):
+1. Run setup:
+
+   ```bash
+   npm install -g context-mode
+   context-mode setup opencode
+   ```
+
+   This adds `context-mode` to the singular `plugin` array in the loaded
+   `opencode.json`/`opencode.jsonc` and removes only a stale
+   `mcp.context-mode` block if present. The plugin entry registers all 11
+   `ctx_*` tools natively and enables hooks — OpenCode calls context-mode's
+   TypeScript plugin in-process, so there is no redundant stdio MCP child per
+   session.
+
+   Manual equivalent:
 
    ```json
    {
@@ -435,8 +449,6 @@ Full configs: [`configs/cursor/hooks.json`](configs/cursor/hooks.json) | [`confi
      "plugin": ["context-mode"]
    }
    ```
-
-   The `plugin` entry registers all 11 `ctx_*` tools natively and enables hooks — OpenCode calls context-mode's TypeScript plugin in-process, so there is no redundant stdio MCP child per session.
 
 2. *(Optional)* Copy the routing rules file. The model needs an `AGENTS.md` file for routing awareness:
 
@@ -467,7 +479,19 @@ Full configs: [`configs/opencode/opencode.json`](configs/opencode/opencode.json)
 
 **Install:**
 
-1. Add to `kilo.json` in your project root (or `~/.config/kilo/kilo.json` for global):
+1. Run setup:
+
+   ```bash
+   npm install -g context-mode
+   context-mode setup kilo
+   ```
+
+   This adds `context-mode` to the singular `plugin` array in the loaded
+   `kilo.json`/`kilo.jsonc` and removes only a stale `mcp.context-mode` block
+   if present. KiloCode calls context-mode's TypeScript plugin in-process, so
+   there is no redundant stdio MCP child per session.
+
+   Manual equivalent:
 
    ```json
    {
@@ -475,8 +499,6 @@ Full configs: [`configs/opencode/opencode.json`](configs/opencode/opencode.json)
      "plugin": ["context-mode"]
    }
    ```
-
-   The `plugin` entry registers all 11 `ctx_*` tools natively and enables hooks — KiloCode calls context-mode's TypeScript plugin in-process, so there is no redundant stdio MCP child per session.
 
 2. *(Optional)* Copy the routing rules file. KiloCode shares the OpenCode plugin architecture, so the model needs an `AGENTS.md` file for routing awareness:
 
@@ -505,7 +527,19 @@ context-mode runs as a native [OpenClaw](https://github.com/openclaw) gateway pl
 
 **Install:**
 
-1. Clone and install:
+1. Run setup from a project or gateway config directory:
+
+   ```bash
+   npm install -g context-mode
+   context-mode setup openclaw
+   ```
+
+   This writes `openclaw.json` with `plugins.entries["context-mode"]`,
+   `plugins.allow`, `plugins.slots.contextEngine`, and the required
+   `mcp.servers.context-mode` sidecar. Re-running is idempotent and preserves
+   other plugin/MCP entries.
+
+2. If you need the legacy gateway-state installer instead, use:
 
    ```bash
    git clone https://github.com/mksglu/context-mode.git
@@ -523,7 +557,7 @@ context-mode runs as a native [OpenClaw](https://github.com/openclaw) gateway pl
 
    The installer handles everything: `npm install`, `npm run build`, `better-sqlite3` native rebuild, extension registration in `runtime.json`, and gateway restart via SIGUSR1.
 
-2. Open a Pi Agent session.
+3. Open a Pi Agent session.
 
 **Verify:** The plugin registers 8 hooks via [`api.on()`](https://docs.openclaw.ai/tools/plugin) (lifecycle) and [`api.registerHook()`](https://docs.openclaw.ai/tools/plugin) (commands). Type `ctx stats` to confirm tools are loaded.
 
@@ -712,7 +746,8 @@ The Codex plugin manifest provides MCP via `.codex-plugin/mcp.json`, skills via
    npm install -g context-mode
    ```
 
-2. Add to `~/.gemini/antigravity/mcp_config.json`:
+2. Add to `~/.gemini/antigravity/mcp_config.json` for Antigravity Editor
+   (`~/.gemini/antigravity-cli/mcp_config.json` when running Antigravity CLI):
 
    ```json
    {
@@ -855,33 +890,18 @@ Full configs: [`configs/kiro/mcp.json`](configs/kiro/mcp.json) | [`configs/kiro/
    npm install -g context-mode
    ```
 
-2. Install the package into Pi:
+2. Run setup:
 
    ```bash
-   pi install npm:context-mode
+   context-mode setup pi
    ```
 
-   Alternative — add it manually to `~/.pi/agent/settings.json` (or `.pi/settings.json` for project-level):
+   This installs a wrapper extension under
+   `~/.pi/agent/extensions/context-mode/` pointing at the active
+   context-mode package. The Pi extension exposes `ctx_*` tools through its
+   bundled bridge, so no separate Pi MCP file is required.
 
-   ```json
-   {
-     "packages": ["npm:context-mode"]
-   }
-   ```
-
-3. Add to `~/.pi/agent/mcp.json` (or `.pi/mcp.json` for project-level):
-
-   ```json
-   {
-     "mcpServers": {
-       "context-mode": {
-         "command": "context-mode"
-       }
-     }
-   }
-   ```
-
-4. Restart Pi.
+3. Restart Pi.
 
 **Verify:** In a Pi session, type `ctx stats`. Context-mode tools should appear and respond.
 
@@ -894,13 +914,19 @@ Full configs: [`configs/kiro/mcp.json`](configs/kiro/mcp.json) | [`configs/kiro/
 
 **Prerequisites:** Node.js >= 22.5 (or Bun), Oh My Pi installed.
 
-**Install — plugin path (recommended):**
+**Install — automatic path (recommended):**
 
-1. Run the OMP plugin install:
+1. Install context-mode globally and run setup:
 
    ```bash
-   omp plugin install context-mode
+   npm install -g context-mode
+   context-mode setup omp
    ```
+
+   This writes `~/.omp/agent/mcp.json`, installs the OMP plugin wrapper under
+   `~/.omp/agent/extensions/context-mode/` (or `$PI_CODING_AGENT_DIR`), and
+   upserts the context-mode `SYSTEM.md` guidance block without overwriting
+   user text.
 
 2. Restart OMP.
 
@@ -913,7 +939,7 @@ Full configs: [`configs/kiro/mcp.json`](configs/kiro/mcp.json) | [`configs/kiro/
 
    Both should show `context-mode` as `enabled`.
 
-**Install — manual plugin path (if `omp plugin install` is unavailable):**
+**Install — manual plugin path (if automatic setup is unavailable):**
 
 OMP loads anything listed under `~/.omp/plugins/package.json` `dependencies` whose own `package.json` carries an `omp` (or `pi`) field. New plugins default to enabled — the lock file at `~/.omp/plugins/omp-plugins.lock.json` is only consulted when a plugin needs to be explicitly **disabled** (loader skips `runtimeState && !runtimeState.enabled` per [`extensibility/plugins/loader.ts:89-94`](https://github.com/can1357/oh-my-pi/blob/main/packages/coding-agent/src/extensibility/plugins/loader.ts)). So the manual install is two commands:
 

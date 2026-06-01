@@ -26,9 +26,10 @@ import {
   chmodSync,
   constants,
 } from "node:fs";
-import { resolve, join } from "node:path";
+import { dirname, resolve, join } from "node:path";
 
 import { BaseAdapter } from "./base.js";
+import { parseJsonc } from "../util/jsonc.js";
 
 import type {
   HookAdapter,
@@ -301,14 +302,14 @@ export abstract class CopilotBaseAdapter extends BaseAdapter implements HookAdap
     // Primary: .github/hooks/context-mode.json
     try {
       const raw = readFileSync(this.getSettingsPath(), "utf-8");
-      return JSON.parse(raw) as Record<string, unknown>;
+      return parseJsonc<Record<string, unknown>>(raw) ?? null;
     } catch {
       /* fall through */
     }
     // Fallback: .claude/settings.json
     try {
       const raw = readFileSync(resolve(".claude", "settings.json"), "utf-8");
-      return JSON.parse(raw) as Record<string, unknown>;
+      return parseJsonc<Record<string, unknown>>(raw) ?? null;
     } catch {
       return null;
     }
@@ -316,7 +317,7 @@ export abstract class CopilotBaseAdapter extends BaseAdapter implements HookAdap
 
   writeSettings(settings: Record<string, unknown>): void {
     const configPath = this.getSettingsPath();
-    mkdirSync(resolve(".github", "hooks"), { recursive: true });
+    mkdirSync(dirname(configPath), { recursive: true });
     writeFileSync(
       configPath,
       JSON.stringify(settings, null, 2) + "\n",

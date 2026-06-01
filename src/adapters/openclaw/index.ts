@@ -21,9 +21,10 @@ import {
   writeFileSync,
   copyFileSync,
   accessSync,
+  mkdirSync,
   constants,
 } from "node:fs";
-import { resolve, join } from "node:path";
+import { dirname, resolve, join } from "node:path";
 import { homedir } from "node:os";
 
 import { BaseAdapter } from "../base.js";
@@ -310,6 +311,7 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
   writeSettings(settings: Record<string, unknown>): void {
     // Write to openclaw.json in current directory
     const configPath = resolve("openclaw.json");
+    mkdirSync(dirname(configPath), { recursive: true });
     writeFileSync(
       configPath,
       JSON.stringify(settings, null, 2) + "\n",
@@ -328,7 +330,7 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
         check: "Plugin configuration",
         status: "fail",
         message: "Could not read openclaw.json",
-        fix: "context-mode upgrade",
+        fix: "context-mode setup openclaw",
       });
       return results;
     }
@@ -347,7 +349,7 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
           : "context-mode not found in plugins.entries",
         fix: hasPlugin
           ? undefined
-          : "context-mode upgrade",
+          : "context-mode setup openclaw",
       });
 
       // Check if enabled
@@ -367,7 +369,7 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
         check: "Plugin registration",
         status: "fail",
         message: "No plugins.entries found in openclaw.json",
-        fix: "context-mode upgrade",
+        fix: "context-mode setup openclaw",
       });
     }
 
@@ -428,14 +430,14 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
         status: "fail",
         message:
           "context-mode in plugins.entries but missing from mcp.servers — plugin loads but no ctx_* tools reach the agent",
-        fix: "context-mode upgrade",
+        fix: "context-mode setup openclaw",
       };
     }
     return {
       check: "Plugin registration",
       status: "fail",
       message: "context-mode not found in openclaw.json plugins.entries",
-      fix: "context-mode upgrade",
+      fix: "context-mode setup openclaw",
     };
   }
 
@@ -497,8 +499,6 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
       if (entry.enabled === false) {
         entry.enabled = true;
         changes.push("Enabled context-mode plugin");
-      } else {
-        changes.push("context-mode already configured in plugins.entries");
       }
     }
 
@@ -519,10 +519,6 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
     if (!slots.contextEngine) {
       slots.contextEngine = "context-mode";
       changes.push("Set context-mode as context engine (owns compaction)");
-    } else if (slots.contextEngine !== "context-mode") {
-      changes.push(
-        `Context engine already set to "${slots.contextEngine}" — not overwriting`,
-      );
     }
 
     // Register the MCP sidecar — WITHOUT this, OpenClaw loads the plugin but
@@ -550,7 +546,9 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
       changes.push(`Registered mcp.servers.context-mode → ${serverBundle}`);
     }
 
-    this.writeSettings(settings);
+    if (changes.length > 0) {
+      this.writeSettings(settings);
+    }
     return changes;
   }
 

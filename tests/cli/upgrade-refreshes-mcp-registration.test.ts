@@ -45,6 +45,26 @@ describe("upgrade refreshes MCP server registration (Item A7)", () => {
     expect(cliSrc).toMatch(/(from|import\s*\()\s*["']\.\/setup(\.js)?["']/);
   });
 
+  test("setup.ts exports refreshPlatformInstall for extension/plugin platforms", () => {
+    expect(setupSrc).toMatch(/export\s+function\s+refreshPlatformInstall/);
+  });
+
+  test("upgrade refreshes platform install before MCP registration", () => {
+    const hooksIdx = cliSrc.indexOf("adapter.configureAllHooks(");
+    const installIdx = cliSrc.indexOf("refreshPlatformInstall(");
+    const refreshIdx = cliSrc.indexOf("refreshMcpRegistration(");
+    expect(hooksIdx).toBeGreaterThan(-1);
+    expect(installIdx).toBeGreaterThan(hooksIdx);
+    expect(refreshIdx).toBeGreaterThan(installIdx);
+  });
+
+  test("platform install refresh failure marks upgrade non-zero", () => {
+    const installIdx = cliSrc.indexOf("refreshPlatformInstall(");
+    const block = cliSrc.slice(installIdx, installIdx + 900);
+    expect(block).toMatch(/process\.exitCode\s*=\s*1/);
+    expect(block).toMatch(/Platform install refresh failed/);
+  });
+
   test("the refresh call happens AFTER configureAllHooks", () => {
     const hooksIdx = cliSrc.indexOf("adapter.configureAllHooks(");
     const refreshIdx = cliSrc.indexOf("refreshMcpRegistration(");
@@ -71,10 +91,23 @@ describe("upgrade refreshes MCP server registration (Item A7)", () => {
     expect(linesBetween).toBeLessThan(30);
   });
 
-  test("Step 4b label appears in upgrade() so the doctor narrative is honest", () => {
+  test("refresh uses the resolved projectDir rather than pluginRoot cwd", () => {
+    expect(cliSrc).toMatch(/resolveProjectDir\(/);
+    expect(cliSrc).toMatch(/refreshMcpRegistration\(concretePlatform,\s*\{\s*projectDir\s*\}\)/);
+  });
+
+  test("refresh failure marks upgrade non-zero", () => {
+    const refreshIdx = cliSrc.indexOf("refreshMcpRegistration(");
+    const block = cliSrc.slice(refreshIdx, refreshIdx + 900);
+    expect(block).toMatch(/process\.exitCode\s*=\s*1/);
+    expect(block).toMatch(/MCP registration refresh failed/);
+  });
+
+  test("Step 4b and 4c labels appear in upgrade() so the doctor narrative is honest", () => {
     // The doctor-style step labels in upgrade() are how users read the
-    // flow. The 4b label asserts the step participates in the upgrade
+    // flow. These labels assert the steps participate in the upgrade
     // narrative rather than being hidden in a try.
     expect(cliSrc).toMatch(/Step\s+4b/i);
+    expect(cliSrc).toMatch(/Step\s+4c/i);
   });
 });

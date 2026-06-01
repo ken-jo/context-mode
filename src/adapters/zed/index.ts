@@ -169,8 +169,11 @@ export class ZedAdapter extends BaseAdapter implements HookAdapter {
     try {
       const raw = readFileSync(this.getSettingsPath(), "utf-8");
       const settings = parseJsonc<Record<string, unknown>>(raw) ?? {};
-      const hasContextServers = settings.context_servers !== undefined;
-      const hasContextMode = raw.includes("context-mode");
+      const contextServers = settings.context_servers;
+      const hasContextServers =
+        !!contextServers && typeof contextServers === "object" && !Array.isArray(contextServers);
+      const hasContextMode =
+        hasContextServers && Object.prototype.hasOwnProperty.call(contextServers, "context-mode");
 
       if (hasContextServers && hasContextMode) {
         return {
@@ -199,8 +202,9 @@ export class ZedAdapter extends BaseAdapter implements HookAdapter {
     } catch {
       return {
         check: "MCP registration",
-        status: "warn",
+        status: "fail",
         message: "Could not read ~/.config/zed/settings.json",
+        fix: "context-mode setup zed",
       };
     }
   }

@@ -998,7 +998,8 @@ describe("Bin entry uses cli.bundle.mjs", () => {
   it("cli doctor invokes adapter.getHealthChecks(pluginRoot) (Algo-D1)", () => {
     const src = readFileSync(resolve(ROOT, "src", "cli.ts"), "utf-8");
     const doctorStart = src.indexOf("async function doctor");
-    const doctorBody = src.slice(doctorStart, doctorStart + 8000);
+    const doctorEnd = src.indexOf("async function insight", doctorStart);
+    const doctorBody = src.slice(doctorStart, doctorEnd);
     // Wiring: doctor must call the optional method via the safe-call
     // operator so adapters that don't override it are untouched.
     expect(doctorBody).toMatch(/adapter\.getHealthChecks\?\.\(pluginRoot\)/);
@@ -2291,9 +2292,11 @@ describe("PR #620 slice 4 — doctor() surfaces persistence-tier bug class", () 
     // The Tier C section is identifiable by the issue anchor `#613`.
     const anchorIdx = body.indexOf("#613");
     expect(anchorIdx).toBeGreaterThan(-1);
+    const failIdx = body.indexOf("Hook config: FAIL", anchorIdx);
+    expect(failIdx).toBeGreaterThan(anchorIdx);
     const window_ = body.slice(
-      Math.max(0, anchorIdx - 500),
-      anchorIdx + 3000,
+      Math.max(0, failIdx - 500),
+      failIdx + 2500,
     );
     // The check must use p.log.error or p.log.warn (not info) AND
     // mention ctx_upgrade so the user knows the remediation.
@@ -2335,9 +2338,10 @@ describe("PR #620 slice 4 — doctor() surfaces persistence-tier bug class", () 
     // os.homedir() — not a literal `~/` prefix which fails on Windows.
     const anchorIdx = body.indexOf("#609");
     expect(anchorIdx).toBeGreaterThan(-1);
-    const window_ = body.slice(anchorIdx, anchorIdx + 2500);
-    // The scan must use homedir() (already imported at the top of cli.ts).
-    expect(window_).toMatch(/homedir\(\)|process\.env\.HOME/);
+    const window_ = body.slice(anchorIdx, anchorIdx + 3500);
+    // The scan must use a platform-aware config-dir resolver (which itself
+    // honors homedir()/CLAUDE_CONFIG_DIR), not a literal tilde path.
+    expect(window_).toMatch(/resolveClaudeConfigDir\(\)|homedir\(\)|process\.env\.HOME/);
     // And must NOT use a literal `~/` path string (would be treated
     // literally on Windows).
     expect(window_).not.toMatch(/["']~\//);

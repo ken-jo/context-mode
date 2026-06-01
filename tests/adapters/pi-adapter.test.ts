@@ -1,5 +1,6 @@
 import "../setup-home";
 import { describe, it, expect, beforeEach } from "vitest";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { PiAdapter } from "../../src/adapters/pi/index.js";
@@ -140,6 +141,24 @@ describe("PiAdapter — Pi platform adapter", () => {
     it("writeSettings then readSettings round-trips", () => {
       adapter.writeSettings({ foo: "bar" });
       expect(adapter.readSettings()).toEqual({ foo: "bar" });
+    });
+  });
+
+  describe("plugin registration", () => {
+    it("fails when package.json exists but index.js is missing", () => {
+      const extensionDir = resolve(homedir(), ".pi", "agent", "extensions", "context-mode");
+      rmSync(extensionDir, { recursive: true, force: true });
+      mkdirSync(extensionDir, { recursive: true });
+      writeFileSync(
+        resolve(extensionDir, "package.json"),
+        JSON.stringify({ name: "context-mode", version: "1.0.0" }),
+      );
+
+      expect(adapter.checkPluginRegistration()).toMatchObject({
+        check: "Pi extension registration",
+        status: "fail",
+        fix: "context-mode setup pi",
+      });
     });
   });
 });

@@ -81,6 +81,7 @@
     "start.mjs",
     "scripts/preinstall.mjs",
     "scripts/postinstall.mjs",
+    "scripts/install-openclaw-plugin.sh",
     "scripts/heal-better-sqlite3.mjs",
     "scripts/heal-installed-plugins.mjs",
     "scripts/plugin-cache-integrity.mjs",

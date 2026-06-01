@@ -9,5 +9,15 @@
     "slots": {
       "contextEngine": "context-mode"
     }
+  },
+  "mcp": {
+    "servers": {
+      "context-mode": {
+        "command": "node",
+        "args": [
+          "./server.bundle.mjs"
+        ]
+      }
+    }
   }
 }

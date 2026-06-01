@@ -77,6 +77,7 @@ describe("pi: global extension read path includes the agent/ segment (Loop-2 / D
     const ok = resolve(home1, ".pi", "agent", "extensions", "context-mode");
     mkdirSync(ok, { recursive: true });
     writeFileSync(join(ok, "package.json"), JSON.stringify({ name: "context-mode", version: "1.2.3" }));
+    writeFileSync(join(ok, "index.js"), `export { default } from "file:///tmp/context-mode/build/adapters/pi/extension.js";`);
     expect(new PiAdapter().checkPluginRegistration().status).toBe("pass");
     expect(new PiAdapter().getInstalledVersion()).toBe("1.2.3");
 

@@ -227,6 +227,8 @@ kill doc-misread false positives. 8 issues survived.
 - [x] **WV-1 — antigravity path/filename/scope (HIGH).** `setup` wrote
   `<project>/.antigravity/mcp.json` but `AntigravityAdapter.getSettingsPath`
   (= the path `doctor` reads) is `~/.gemini/antigravity/mcp_config.json`
+  for the Editor, or `~/.gemini/antigravity-cli/mcp_config.json` when the
+  Antigravity CLI marker is present
   (home-rooted, filename `mcp_config.json`). Three-axis divergence → setup
   succeeded but doctor reported WARN and Antigravity never loaded the server.
   Fixed `MCP_REGISTRATIONS.antigravity.resolvePath` → home-rooted
@@ -515,9 +517,52 @@ was fixed + regression-guarded; official docs were re-verified each iteration;
 contested pre-existing items (opencode APPDATA-vs-xdg, openclaw state-dir) are
 documented for the maintainer rather than blind-edited.
 
+## Follow-up plugin/manual-platform audit
+
+User-requested goal: make the platforms that do not have a Codex/Claude-style
+plugin marketplace install path (Pi, OMP, OpenCode, KiloCode, OpenClaw,
+JetBrains Copilot) converge through `context-mode setup` rather than leaving
+users on manual JSON snippets, and make `doctor` fail when those setup-owned
+artifacts are incomplete.
+
+- [x] **Manual setup short-circuit removed where automation is safe.**
+  `context-mode setup opencode|kilo` now writes the singular `plugin` array
+  and removes only stale `mcp.context-mode`; `setup openclaw` writes
+  `plugins.entries`, `plugins.allow`, `plugins.slots.contextEngine`, and
+  `mcp.servers.context-mode`; `setup jetbrains-copilot` writes the
+  `.github/hooks/context-mode.json` hook file and prints the remaining
+  JetBrains Copilot MCP Settings UI step.
+- [x] **Pi/OMP wrapper install is setup-owned.** `setup pi` installs
+  `~/.pi/agent/extensions/context-mode/{package.json,index.js}`. `setup omp`
+  installs `~/.omp/agent/extensions/context-mode/{package.json,index.js}` (or
+  `$PI_CODING_AGENT_DIR`), writes `~/.omp/agent/mcp.json`, and upserts the
+  managed context-mode block into `SYSTEM.md` without overwriting user text.
+- [x] **Doctor no longer green-lights partial Pi/OMP installs.** Pi now
+  requires both the package manifest and `index.js` wrapper. OMP now requires
+  both `mcpServers.context-mode` and the OMP extension wrapper. Reproduced
+  failure cases (`mcp.json` only for OMP, package.json only for Pi) now exit
+  non-zero.
+- [x] **Upgrade migrates setup-owned platform installs.** `context-mode
+  upgrade` now calls the same exported platform-install refresh used by setup
+  before refreshing MCP registration, so existing Pi/OMP users are migrated
+  instead of staying on stale MCP-only/manual state.
+- [x] **Antigravity Editor vs CLI path split fixed.** Antigravity Editor
+  defaults to `~/.gemini/antigravity/mcp_config.json`; Antigravity CLI uses
+  `~/.gemini/antigravity-cli/mcp_config.json` when `ANTIGRAVITY_CLI_ALIAS` is
+  present. This prevents setup/doctor from converging on the CLI file while
+  the Editor loads a different config.
+- [x] **Windows/packaging regressions guarded.** setup tests use
+  `node --import .../tsx/dist/loader.mjs` instead of `npx` shims, Windows env
+  roots (`LOCALAPPDATA`/`APPDATA`) are isolated under fake HOME, and the npm
+  tarball includes `scripts/install-openclaw-plugin.sh`.
+- [x] **Validation evidence.** `npm run typecheck`, targeted Vitest
+  (`11 files / 388 tests`), `npm run build` (`assert-bundle` +
+  `assert-asymmetric-drift`), and CLI smokes for Pi/OMP partial installs plus
+  Antigravity Editor/CLI path selection all passed.
+
 ## Open questions
 
 - [ ] `setup` should it accept `--scope user|project|local` like `claude mcp add`?
 - [ ] Where does the merge manifest live for adapters whose config has nested arrays (cursor hooks `[{matcher, hooks: [...]}]`)? Need JSON-path or shallow-array dedupe semantics — propose `setup.manifest.json` per adapter that names "owned" keys.
-- [ ] OpenClaw / Pi extensions install into `.openclaw/` / `.pi/` — `setup` here is mostly a no-op (their native plugin systems handle MCP registration). Document as "managed externally" rather than running a write.
-- [ ] OpenCode / Kilo install via npm into a per-package cache (`~/.cache/opencode/packages/...`). Setup may not need to write anything here either — confirm.
+- [x] OpenClaw / Pi extensions install into `.openclaw/` / `.pi/` — resolved by setup automation above: OpenClaw writes the project/global config triangle; Pi writes the global extension wrapper under `~/.pi/agent/extensions/context-mode/`.
+- [x] OpenCode / Kilo install via npm into a per-package cache (`~/.cache/opencode/packages/...`). Resolved for setup scope: setup writes the host config `plugin` array and leaves package-cache installation to the host runtime.

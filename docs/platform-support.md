@@ -240,6 +240,13 @@ context-mode hook codex stop
   Codex marketplace plugin as a relative Git source (`url: "./"`), so Codex
   materializes the installed marketplace root and finds `.codex-plugin/plugin.json`
   without any symlink or junction.
+- The Codex marketplace plugin is now a thin launcher for runtime code. It
+  keeps the install root as real files for Codex discovery, then prefers a
+  global `context-mode` runtime found via `CONTEXT_MODE_GLOBAL_ROOT`,
+  `CONTEXT_MODE_RUNTIME_ROOT`, standard npm-global locations, or the MCP
+  startup `npm root -g` probe. If no global install is present, it falls back to
+  the materialized plugin cache. This preserves the single-source global install
+  workflow without relying on Git-tracked symlinks that are unstable on Windows.
 
   After installation succeeds, verify that Codex hooks are enabled in
   `%USERPROFILE%\.codex\config.toml`:

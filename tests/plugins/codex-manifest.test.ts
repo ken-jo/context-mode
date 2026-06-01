@@ -21,8 +21,9 @@
  *
  * - Codex DOES auto-resolve a relative `cwd` against the plugin root in
  *   `normalize_plugin_mcp_server_value` (codex-rs/core-plugins/src/loader.rs:1067-1071).
- *   So `cwd: "."` becomes `<plugin_root>` at spawn time, and a relative
- *   `args: ["./start.mjs"]` then resolves correctly when Node loads it.
+ *   So `cwd: "."` becomes `<plugin_root>` at spawn time, and the relative
+ *   global-runtime shim resolves before delegating to the global npm install
+ *   or, when absent, the materialized plugin cache fallback.
  */
 
 import { describe, it, expect } from "vitest";
@@ -50,11 +51,12 @@ describe(".codex-plugin/mcp.json", () => {
     expect(servers).toHaveProperty("context-mode");
   });
 
-  it("launches via `node` with relative `./start.mjs`", () => {
+  it("launches via `node` with the relative global runtime shim", () => {
     const servers = mcp.mcpServers as Record<string, { command: string; args: string[] }>;
     const entry = servers["context-mode"];
     expect(entry.command).toBe("node");
-    expect(entry.args).toEqual(["./start.mjs"]);
+    expect(entry.args).toEqual(["./.codex-plugin/global-runtime.mjs", "mcp"]);
+    expect(existsSync(resolve(REPO_ROOT, ".codex-plugin/global-runtime.mjs"))).toBe(true);
   });
 
   it("sets `cwd: \".\"` so Codex resolves it to the plugin root at spawn", () => {
@@ -106,23 +108,29 @@ describe(".codex-plugin/hooks.json", () => {
     expect(existsSync(hooksPath)).toBe(true);
   });
 
-  it("uses simple plugin-root hook script commands", () => {
+  it("uses a plugin-root global runtime shim for hook commands", () => {
     for (const groups of Object.values(hooks.hooks)) {
       const command = groups[0]?.hooks[0]?.command ?? "";
-      expect(command).toContain('node "${PLUGIN_ROOT}/hooks/codex/');
+      expect(command).toMatch(/^node "\$\{PLUGIN_ROOT\}\/\.codex-plugin\/global-runtime\.mjs" hook /);
     }
   });
 
   it("sets CONTEXT_MODE_PLATFORM=codex in hook wrapper modules", () => {
+    const runtimeSource = readFileSync(resolve(REPO_ROOT, ".codex-plugin/global-runtime.mjs"), "utf8");
+    expect(runtimeSource).toContain('process.env.CONTEXT_MODE_PLATFORM = "codex";');
+
     const platformSource = readFileSync(resolve(REPO_ROOT, "hooks/codex/platform.mjs"), "utf8");
     expect(platformSource).toContain('process.env.CONTEXT_MODE_PLATFORM = "codex";');
 
-    for (const groups of Object.values(hooks.hooks)) {
-      const command = groups[0]?.hooks[0]?.command ?? "";
-      const match = command.match(/\$\{PLUGIN_ROOT\}\/(hooks\/codex\/[^"]+\.mjs)/);
-      expect(match, `expected codex hook script path in ${command}`).not.toBeNull();
-
-      const hookSource = readFileSync(resolve(REPO_ROOT, match![1]), "utf8");
+    for (const relPath of [
+      "hooks/codex/pretooluse.mjs",
+      "hooks/codex/posttooluse.mjs",
+      "hooks/codex/sessionstart.mjs",
+      "hooks/codex/precompact.mjs",
+      "hooks/codex/userpromptsubmit.mjs",
+      "hooks/codex/stop.mjs",
+    ]) {
+      const hookSource = readFileSync(resolve(REPO_ROOT, relPath), "utf8");
       const platformImport = hookSource.indexOf('import "./platform.mjs";');
       const firstSharedImport = hookSource.indexOf('import "../');
       expect(platformImport).toBeGreaterThanOrEqual(0);

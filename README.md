@@ -568,6 +568,16 @@ The Codex plugin manifest provides MCP via `.codex-plugin/mcp.json`, skills via
 `[mcp_servers.context-mode]` block or `$CODEX_HOME/hooks.json` is needed when
 `plugin_hooks` is enabled and the plugin hooks are trusted.
 
+**Global runtime mode:** if `context-mode` is also installed globally, the Codex
+marketplace plugin acts as a thin launcher. MCP and hooks prefer the global npm
+runtime discovered from `CONTEXT_MODE_GLOBAL_ROOT`, `CONTEXT_MODE_RUNTIME_ROOT`,
+or standard npm-global locations such as `%APPDATA%\npm\node_modules` and
+`/usr/local/lib/node_modules`; MCP startup can also probe `npm root -g`. When no
+global runtime is available, the launcher falls back to the materialized plugin
+cache. This keeps Codex installation symlink-free on Windows while allowing one
+global `npm install -g context-mode` to serve Codex and the other supported
+hosts.
+
 > **Node/PATH note:** context-mode still needs `node` visible to the Codex process.
 > The plugin removes manual Codex config, but it does not vendor Node or inherit
 > login-shell PATH fixes automatically.

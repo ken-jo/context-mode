@@ -1,13 +1,22 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const REPO_ROOT = resolve(__dirname, "..", "..");
+const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(TEST_DIR, "..", "..");
 const runtimeModule = await import(pathToFileURL(resolve(REPO_ROOT, ".codex-plugin/global-runtime.mjs")).href);
 
 const cleanup: string[] = [];
+
+function canonical(path: string) {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
 
 function makeRuntimeRoot(label: string, withHook = true) {
   const root = mkdtempSync(join(tmpdir(), `ctx-codex-runtime-${label}-`));
@@ -38,7 +47,7 @@ describe(".codex-plugin/global-runtime.mjs", () => {
       execFileSyncFn: () => "",
     });
 
-    expect(runtime.root).toBe(resolve(globalRoot));
+    expect(runtime.root).toBe(canonical(globalRoot));
     expect(runtime.source).toBe("CONTEXT_MODE_GLOBAL_ROOT");
   });
 
@@ -56,20 +65,21 @@ describe(".codex-plugin/global-runtime.mjs", () => {
       pluginRoot,
       mode: "mcp",
       env: {},
-      platform: "linux",
       execFileSyncFn: (command: string, args: string[]) => {
-        if (command === "pnpm") return "";
-        expect(command).toBe("npm");
+        const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+        const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+        if (command === pnpmCommand) return "";
+        expect(command).toBe(npmCommand);
         expect(args).toEqual(["root", "-g"]);
         return `${nodeModulesRoot}\n`;
       },
     });
 
-    expect(runtime.root).toBe(resolve(globalRoot));
+    expect(runtime.root).toBe(canonical(globalRoot));
     expect(runtime.source).toBe("npm root -g");
   });
 
-  it("checks the Windows APPDATA npm root before spawning npm on hook hot paths", () => {
+  (process.platform === "win32" ? it : it.skip)("checks the Windows APPDATA npm root before spawning npm on hook hot paths", () => {
     const appDataRoot = mkdtempSync(join(tmpdir(), "ctx-appdata-"));
     cleanup.push(appDataRoot);
     const globalRoot = join(appDataRoot, "npm", "node_modules", "context-mode");
@@ -89,8 +99,22 @@ describe(".codex-plugin/global-runtime.mjs", () => {
       },
     });
 
-    expect(runtime.root).toBe(resolve(globalRoot));
+    expect(runtime.root).toBe(canonical(globalRoot));
     expect(runtime.source).toBe("APPDATA npm");
+  });
+
+  it("ignores empty Windows APPDATA instead of creating a relative candidate", () => {
+    const candidates = runtimeModule.collectRuntimeRootCandidates({
+      pluginRoot: "",
+      env: { APPDATA: "" },
+      platform: "win32",
+      execFileSyncFn: () => {
+        throw new Error("npm root -g should not run on hook hot paths");
+      },
+      includeNpmRootProbe: false,
+    });
+
+    expect(candidates).toEqual([]);
   });
 
   it("falls back to the materialized plugin cache when no global runtime exists", () => {
@@ -103,7 +127,7 @@ describe(".codex-plugin/global-runtime.mjs", () => {
       execFileSyncFn: () => "",
     });
 
-    expect(runtime.root).toBe(resolve(pluginRoot));
+    expect(runtime.root).toBe(canonical(pluginRoot));
     expect(runtime.source).toBe("plugin cache fallback");
   });
 

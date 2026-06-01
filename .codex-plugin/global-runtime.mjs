@@ -30,11 +30,22 @@ function realpathOrResolve(path, realpathSyncFn = realpathSync) {
   }
 }
 
-function pushUnique(candidates, seen, rawPath, source) {
+function isAbsoluteRuntimePath(path, platform) {
+  if (!path) return false;
+  if (platform === "win32") return /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
+  return path.startsWith("/");
+}
+
+function candidateKey(root, platform) {
+  return platform === "win32" ? root.toLowerCase() : root;
+}
+
+function pushUnique(candidates, seen, rawPath, source, platform) {
   const path = trimPath(rawPath);
   if (!path) return;
+  if (!isAbsoluteRuntimePath(path, platform)) return;
   const root = resolve(path);
-  const key = root.toLowerCase();
+  const key = candidateKey(root, platform);
   if (seen.has(key)) return;
   seen.add(key);
   candidates.push({ root, source });
@@ -77,28 +88,30 @@ export function collectRuntimeRootCandidates({
   const seen = new Set();
 
   for (const envName of GLOBAL_ROOT_ENVS) {
-    pushUnique(candidates, seen, env[envName], envName);
+    pushUnique(candidates, seen, env[envName], envName, platform);
   }
 
   const npmPrefix = trimPath(env.npm_config_prefix);
   if (npmPrefix) {
-    pushUnique(candidates, seen, join(npmPrefix, "node_modules", PACKAGE_NAME), "npm_config_prefix");
+    pushUnique(candidates, seen, join(npmPrefix, "node_modules", PACKAGE_NAME), "npm_config_prefix", platform);
   }
 
   if (platform === "win32") {
-    pushUnique(candidates, seen, join(env.APPDATA || "", "npm", "node_modules", PACKAGE_NAME), "APPDATA npm");
+    if (trimPath(env.APPDATA)) {
+      pushUnique(candidates, seen, join(env.APPDATA, "npm", "node_modules", PACKAGE_NAME), "APPDATA npm", platform);
+    }
   } else {
-    pushUnique(candidates, seen, join(homedir(), ".npm-global", "lib", "node_modules", PACKAGE_NAME), "home npm-global");
-    pushUnique(candidates, seen, "/usr/local/lib/node_modules/context-mode", "usr-local npm");
+    pushUnique(candidates, seen, join(homedir(), ".npm-global", "lib", "node_modules", PACKAGE_NAME), "home npm-global", platform);
+    pushUnique(candidates, seen, join("/usr/local/lib/node_modules", PACKAGE_NAME), "usr-local npm", platform);
   }
 
   if (includeNpmRootProbe) {
     for (const nodeModulesRoot of collectNpmRootCandidates({ platform, execFileSyncFn })) {
-      pushUnique(candidates, seen, join(nodeModulesRoot, PACKAGE_NAME), "npm root -g");
+      pushUnique(candidates, seen, join(nodeModulesRoot, PACKAGE_NAME), "npm root -g", platform);
     }
   }
 
-  pushUnique(candidates, seen, pluginRoot, "plugin cache fallback");
+  pushUnique(candidates, seen, pluginRoot, "plugin cache fallback", platform);
   return candidates;
 }
 

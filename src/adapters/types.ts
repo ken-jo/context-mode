@@ -307,6 +307,18 @@ export interface HookAdapter {
   /** Configure all hooks for this platform. Returns change descriptions. */
   configureAllHooks(pluginRoot: string): string[];
 
+  /**
+   * Inverse of configureAllHooks: remove the context-mode registration this
+   * adapter wrote INTO a shared host config (e.g. opencode/kilo's `plugin`
+   * array, openclaw's plugins.entries + mcp.servers). Returns change
+   * descriptions (empty when nothing was present). Optional — adapters that
+   * only write standalone files (handled by removePlatformInstall /
+   * removeMcpRegistration) need not implement it. Without it, `setup
+   * --uninstall` is a no-op for the in-config platforms and the host keeps
+   * loading context-mode while setup reports success.
+   */
+  unconfigureHooks?(pluginRoot: string): string[];
+
   /** Backup platform settings before modification. Returns backup path or null. */
   backupSettings(): string | null;
 

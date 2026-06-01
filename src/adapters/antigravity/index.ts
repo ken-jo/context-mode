@@ -5,8 +5,7 @@
  *
  * Antigravity hook specifics:
  *   - NO hook support (MCP-only, same as Codex CLI)
- *   - Editor config: ~/.gemini/antigravity/mcp_config.json (JSON format)
- *   - CLI config: ~/.gemini/antigravity-cli/mcp_config.json (when ANTIGRAVITY_CLI_ALIAS is set)
+ *   - Config: ~/.gemini/antigravity/mcp_config.json (JSON format)
  *   - MCP: full support via mcpServers in mcp_config.json
  *   - All capabilities are false — MCP is the only integration path
  *   - Session dir: ~/.gemini/context-mode/sessions/
@@ -30,25 +29,12 @@ import { homedir } from "node:os";
 import { BaseAdapter } from "../base.js";
 import { parseJsonc } from "../../util/jsonc.js";
 
-export function antigravityMcpConfigPath(
-  env: NodeJS.ProcessEnv = process.env,
-): string {
-  return resolve(
-    homedir(),
-    ".gemini",
-    env.ANTIGRAVITY_CLI_ALIAS ? "antigravity-cli" : "antigravity",
-    "mcp_config.json",
-  );
+export function antigravityMcpConfigPath(): string {
+  return resolve(homedir(), ".gemini", "antigravity", "mcp_config.json");
 }
 
-export function antigravityConfigDir(
-  env: NodeJS.ProcessEnv = process.env,
-): string {
-  return resolve(
-    homedir(),
-    ".gemini",
-    env.ANTIGRAVITY_CLI_ALIAS ? "antigravity-cli" : "antigravity",
-  );
+export function antigravityConfigDir(): string {
+  return resolve(homedir(), ".gemini", "antigravity");
 }
 
 import type {
@@ -135,8 +121,7 @@ export class AntigravityAdapter extends BaseAdapter implements HookAdapter {
   }
 
   /**
-   * Antigravity nests under either ~/.gemini/antigravity/ or
-   * ~/.gemini/antigravity-cli/. Always absolute.
+   * Antigravity nests under ~/.gemini/antigravity/. Always absolute.
    * `_projectDir` accepted for interface symmetry but unused — home-rooted.
    */
   getConfigDir(_projectDir?: string): string {

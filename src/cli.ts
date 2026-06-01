@@ -1699,7 +1699,7 @@ async function upgrade(opts?: { platform?: string }) {
   try {
     const { refreshPlatformInstall } = await import("./setup.js");
     const concretePlatform = detection.platform ?? detectPlatform().platform;
-    const installResult = refreshPlatformInstall(concretePlatform, { pluginRoot });
+    const installResult = refreshPlatformInstall(concretePlatform, { pluginRoot, projectDir });
     if (installResult === null) {
       p.log.info(color.dim("Platform install refresh: not applicable for this platform"));
     } else if (installResult.changed) {

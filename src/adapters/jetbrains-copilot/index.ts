@@ -89,6 +89,18 @@ export class JetBrainsCopilotAdapter extends CopilotBaseAdapter {
       const config = parseJsonc<Record<string, unknown>>(raw) ?? {};
       const hooks = config.hooks as Record<string, unknown> | undefined;
 
+      // GitHub Copilot's hooks schema REQUIRES top-level "version": 1; without
+      // it the runtime rejects the file and NO hooks fire — so a version-less
+      // file must FAIL doctor, not silently pass on the hook-presence checks.
+      results.push({
+        check: "Hooks schema version",
+        status: config.version === 1 ? "pass" : "fail",
+        message: config.version === 1
+          ? 'hooks.json declares the required "version": 1'
+          : 'hooks.json is missing top-level "version": 1 — GitHub Copilot rejects the file, so hooks never fire',
+        ...(config.version === 1 ? {} : { fix: "context-mode setup jetbrains-copilot" }),
+      });
+
       if (hooks?.[JETBRAINS_HOOK_NAMES.PRE_TOOL_USE]) {
         results.push({
           check: "PreToolUse hook",

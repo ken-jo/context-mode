@@ -427,6 +427,7 @@ describe("Issue #531 — asymmetric-drift invariant", () => {
       mkdirSync(join(scratch, ".git"), { recursive: true });
       mkdirSync(join(scratch, ".claude-plugin"), { recursive: true });
       mkdirSync(join(scratch, "scripts"), { recursive: true });
+      mkdirSync(join(scratch, "scripts", "lib", "heal"), { recursive: true });
       mkdirSync(join(scratch, "hooks"), { recursive: true });
       mkdirSync(join(scratch, "node_modules"), { recursive: true });
 
@@ -484,6 +485,17 @@ describe("Issue #531 — asymmetric-drift invariant", () => {
           "export function sweepStaleMcpJson() { return { removed: [] }; }",
           "",
         ].join("\n"),
+      );
+      // postinstall.mjs also imports the runtime heal-suite + precheck (merged
+      // heal work). Stub both with no-ops so the clone resolves the imports —
+      // we are testing section 4's isGlobalInstall guard, not the heal logic.
+      writeFileSync(
+        join(scratch, "scripts", "lib", "heal", "runtime-heal-suite.mjs"),
+        "export function runRuntimeHealSuite() { return { ran: false }; }\n",
+      );
+      writeFileSync(
+        join(scratch, "scripts", "lib", "runtime-precheck.mjs"),
+        "export function runRuntimePrecheck() { return { ok: true }; }\n",
       );
 
       // Run postinstall the same way npm does — env stripped of

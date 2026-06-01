@@ -33,6 +33,7 @@ import color from "picocolors";
 import { detectPlatform, getAdapter } from "./adapters/detect.js";
 import { REGISTERED_PLATFORM_IDS } from "./adapters/registry.js";
 import { antigravityMcpConfigPath } from "./adapters/antigravity/index.js";
+import { openclawConfigPath } from "./adapters/openclaw/index.js";
 import { zedSettingsPath } from "./adapters/zed/index.js";
 import type { PlatformId } from "./adapters/types.js";
 import { parseJsonc } from "./util/jsonc.js";
@@ -181,6 +182,38 @@ function upsertManagedTextBlock(
 }
 
 /**
+ * Inverse of upsertManagedTextBlock — strip the context-mode managed block
+ * (and its surrounding blank line) from `path`, preserving any user-authored
+ * prose. If the managed block was the entire file, delete the file. Used by
+ * uninstall so a platform's SYSTEM.md/instruction file does not keep ~4KB of
+ * routing rules referencing removed ctx_* tools.
+ */
+function removeManagedTextBlock(
+  path: string,
+  opts: { check: boolean; label: string },
+): { changed: boolean; desc: string } {
+  const start = "<!-- context-mode:setup:start -->";
+  const end = "<!-- context-mode:setup:end -->";
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const current = fileText(path);
+  const re = new RegExp(`${esc(start)}[\\s\\S]*?${esc(end)}`);
+  if (current === null || !re.test(current)) {
+    return { changed: false, desc: `${opts.label}: not present` };
+  }
+  if (opts.check) {
+    return { changed: true, desc: `${opts.label}: WOULD REMOVE block from ${path}` };
+  }
+  const next = current.replace(re, "").replace(/\n{3,}/g, "\n\n").trimEnd();
+  if (next === "") {
+    rmSync(path, { force: true });
+    return { changed: true, desc: `${opts.label}: removed ${path} (managed block was the whole file)` };
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, next + "\n", "utf-8");
+  return { changed: true, desc: `${opts.label}: removed block from ${path}` };
+}
+
+/**
  * Shallow-merge `desired` over any existing object value so a user's extra
  * fields on the context-mode server entry (e.g. `env` / `args`) survive a
  * re-run. Non-object existing → desired wins. (Second-pass finding: the old
@@ -258,10 +291,9 @@ const MCP_REGISTRATIONS: Partial<Record<PlatformId, McpRegHandler>> = {
   },
   "antigravity": {
     label: "Antigravity mcp_config.json mcpServers",
-    // Antigravity Editor and Antigravity CLI use separate global MCP config
-    // roots. The CLI advertises ANTIGRAVITY_CLI_ALIAS; otherwise default to
-    // the Editor path so setup/doctor do not green-light a file the Editor
-    // never loads.
+    // Antigravity loads its global MCP config from ~/.gemini/antigravity/
+    // mcp_config.json — shared with AntigravityAdapter.getSettingsPath so
+    // setup writes where doctor + the Antigravity Editor read.
     resolvePath: () => antigravityMcpConfigPath(),
     containerKey: "mcpServers",
   },
@@ -463,6 +495,8 @@ const POST_SETUP_NOTES: Partial<Record<PlatformId, string>> = {
     "Codex MCP registration uses TOML. Add this to ~/.codex/config.toml (hooks were configured automatically above):\n\n  [mcp_servers.context-mode]\n  command = \"context-mode\"\n\n(Automated TOML editing is on the roadmap.)",
   "jetbrains-copilot":
     "JetBrains Copilot hooks were written to `.github/hooks/context-mode.json`.\n\nMCP registration still lives behind JetBrains' GitHub Copilot UI:\n  GitHub Copilot icon > Edit Settings > Model Context Protocol > Configure\n\nUse a top-level `servers` object:\n  { \"servers\": { \"context-mode\": { \"command\": \"context-mode\" } } }",
+  "openclaw":
+    "OpenClaw config was registered (plugins.entries + plugins.allow + mcp.servers.context-mode) in the gateway's config file.\n\nFor the gateway to LOAD context-mode it also needs the plugin module on disk and a reload — run:\n\n  npm run install:openclaw\n\nwhich lays down <state-dir>/extensions/context-mode/ and restarts the gateway. context-mode does NOT install or restart the OpenClaw gateway itself; it only registers into an already-installed gateway.",
 };
 
 /* ─────────── Hook configuration via adapter.configureAllHooks ─────────── */
@@ -516,7 +550,7 @@ function extensionEntrypoint(pluginRoot: string, buildEntry: string): string {
 
 function applyPlatformInstall(
   platform: PlatformId,
-  opts: { pluginRoot: string; check: boolean },
+  opts: { pluginRoot: string; check: boolean; projectDir?: string },
 ): { changed: boolean; desc: string } | null {
   const desc: string[] = [];
   let changed = false;
@@ -563,35 +597,85 @@ function applyPlatformInstall(
     return { changed, desc: `OMP integration: ${desc.join("; ")}` };
   }
 
+  if (platform === "cursor") {
+    // Cursor's hooks cannot inject routing context — additional_context is
+    // accepted but NOT surfaced to the model (Cursor upstream bug, see
+    // docs/platform-support.md) — so the .cursor/rules/*.mdc rule is the
+    // primary proactive-routing mechanism. The marketplace-plugin path ships
+    // it (.cursor-plugin/plugin.json "rules"), but `setup cursor` must install
+    // it too, or routing silently degrades to deny/ask-only. Cursor loads .mdc
+    // ONLY from .cursor/rules/ (cursor.com/docs/rules), project-scoped.
+    const projectDir = opts.projectDir ?? process.cwd();
+    const mdc = fileText(resolve(opts.pluginRoot, "configs", "cursor", "context-mode.mdc"));
+    if (mdc === null) return null;
+    add(writeTextIfChanged(
+      resolve(projectDir, ".cursor", "rules", "context-mode.mdc"),
+      mdc,
+      { check: opts.check, label: "Cursor routing rule (.cursor/rules/context-mode.mdc)" },
+    ));
+    return { changed, desc: `Cursor rules: ${desc.join("; ")}` };
+  }
+
   return null;
 }
 
 export function refreshPlatformInstall(
   platform: PlatformId,
-  opts: { pluginRoot: string; check?: boolean },
+  opts: { pluginRoot: string; check?: boolean; projectDir?: string },
 ): { changed: boolean; desc: string } | null {
   return applyPlatformInstall(platform, {
     pluginRoot: opts.pluginRoot,
     check: opts.check ?? false,
+    projectDir: opts.projectDir,
   });
 }
 
 function removePlatformInstall(
   platform: PlatformId,
-  opts: { check: boolean },
+  opts: { check: boolean; projectDir?: string },
 ): { changed: boolean; desc: string } | null {
+  if (platform === "cursor") {
+    // Inverse of the cursor branch in applyPlatformInstall.
+    const projectDir = opts.projectDir ?? process.cwd();
+    const mdc = resolve(projectDir, ".cursor", "rules", "context-mode.mdc");
+    if (!existsSync(mdc)) {
+      return { changed: false, desc: "Cursor routing rule: not installed" };
+    }
+    if (opts.check) {
+      return { changed: true, desc: `Cursor routing rule: WOULD REMOVE ${mdc}` };
+    }
+    rmSync(mdc, { force: true });
+    return { changed: true, desc: `Cursor routing rule: removed ${mdc}` };
+  }
+
   if (platform !== "pi" && platform !== "omp") return null;
+  const desc: string[] = [];
+  let changed = false;
   const dir = platform === "pi"
     ? piExtensionDir()
     : resolve(ompAgentDir(), "extensions", "context-mode");
-  if (!existsSync(dir)) {
-    return { changed: false, desc: `${platform} extension: not installed` };
+  if (existsSync(dir)) {
+    if (opts.check) {
+      desc.push(`WOULD REMOVE ${dir}`);
+    } else {
+      rmSync(dir, { recursive: true, force: true });
+      desc.push(`removed ${dir}`);
+    }
+    changed = true;
+  } else {
+    desc.push("extension not installed");
   }
-  if (opts.check) {
-    return { changed: true, desc: `${platform} extension: WOULD REMOVE ${dir}` };
+  // omp also injects a managed block into ~/.omp/agent/SYSTEM.md (see the omp
+  // branch of applyPlatformInstall) — strip it so uninstall is symmetric.
+  if (platform === "omp") {
+    const sys = removeManagedTextBlock(
+      resolve(ompAgentDir(), "SYSTEM.md"),
+      { check: opts.check, label: "OMP SYSTEM.md rules" },
+    );
+    changed = changed || sys.changed;
+    desc.push(sys.desc);
   }
-  rmSync(dir, { recursive: true, force: true });
-  return { changed: true, desc: `${platform} extension: removed ${dir}` };
+  return { changed, desc: `${platform} extension: ${desc.join("; ")}` };
 }
 
 interface FileSnapshot {
@@ -670,14 +754,17 @@ function hookConfigPaths(platform: PlatformId, projectDir: string): string[] {
         resolve(xdgRoot, "kilo", "kilo.jsonc"),
       ];
     case "openclaw":
+      // Lead with the gateway's real config path (env / state-dir / ~/.openclaw)
+      // so the --check dry-run snapshots the file setup actually writes.
       return [
+        openclawConfigPath(),
         resolve(projectDir, "openclaw.json"),
         resolve(projectDir, ".openclaw", "openclaw.json"),
         resolve(homedir(), ".openclaw", "openclaw.json"),
       ];
     case "kiro":
       return [
-        resolve(homedir(), ".kiro", "agents", "default.json"),
+        resolve(homedir(), ".kiro", "agents", "kiro_default.json"),
       ];
     case "codex":
       return [
@@ -812,7 +899,7 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
   // ── Uninstall path — Item A4 ──
   if (opts.uninstall) {
     try {
-      const installRemoval = removePlatformInstall(platform, { check: !!opts.check });
+      const installRemoval = removePlatformInstall(platform, { check: !!opts.check, projectDir });
       if (installRemoval) {
         if (installRemoval.changed) {
           if (opts.check) driftSeen = true;
@@ -847,13 +934,62 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
       warnings.push(`uninstall mcp: ${msg}`);
       hadFailure = true;
     }
-    // Hooks removal is adapter-specific (each adapter writes its own keys);
-    // for the MVP we point the user at manual removal rather than risking
-    // damage to user-managed hook entries that happen to share our matcher
-    // pattern. Tracked as A4b follow-up.
-    p.log.info(
-      color.dim("Hook entries (if any) left in place — remove manually from your platform's hooks.json."),
-    );
+
+    // ── Plugin/config entry removal — inverse of configureAllHooks ──
+    // opencode/kilo register context-mode INTO the host's `plugin` array;
+    // openclaw into plugins.entries + plugins.allow + slots + mcp.servers.
+    // Without removing these, --uninstall was a silent no-op and the host kept
+    // loading context-mode while setup reported "Already uninstalled". Adapters
+    // expose the inverse via the optional unconfigureHooks(). (Loop-5 finding.)
+    let hookEntriesHandled = false;
+    if (HOOK_CAPABLE.has(platform)) {
+      try {
+        const adapter = await getAdapter(platform);
+        if (typeof adapter.unconfigureHooks === "function") {
+          hookEntriesHandled = true;
+          if (opts.check) {
+            const paths = [adapter.getSettingsPath(), ...hookConfigPaths(platform, projectDir)];
+            const snapshots = snapshotFiles(paths);
+            try {
+              const removed = adapter.unconfigureHooks(opts.pluginRoot);
+              if (removed.length > 0) {
+                driftSeen = true;
+                p.log.success(color.green(`Hooks: WOULD REMOVE — ${removed.join("; ")}`));
+                changes.push(...removed);
+              } else {
+                p.log.info(color.dim("Hook/plugin entries: none found"));
+              }
+            } finally {
+              restoreSnapshots(snapshots);
+            }
+          } else {
+            const removed = adapter.unconfigureHooks(opts.pluginRoot);
+            if (removed.length > 0) {
+              outcome = "applied";
+              p.log.success(color.green(`Hooks: ${removed.join("; ")}`));
+              changes.push(...removed);
+            } else {
+              p.log.info(color.dim("Hook/plugin entries: none found"));
+            }
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        p.log.error(color.red(`Hook removal: FAIL — ${msg}`));
+        warnings.push(`uninstall hooks: ${msg}`);
+        hadFailure = true;
+      }
+    }
+
+    // For the json-stdio hook platforms (gemini/cursor/copilot/kiro/codex) the
+    // hook entries live in config files we do not auto-remove yet, so point the
+    // user at manual removal. Platforms whose registration we DID invert above
+    // (opencode/kilo/openclaw) are fully removed — skip the misleading note.
+    if (!hookEntriesHandled) {
+      p.log.info(
+        color.dim("Hook entries (if any) left in place — remove manually from your platform's hooks.json."),
+      );
+    }
     // A real unregister write failure → non-zero exit (mirrors the install
     // path; previously the uninstall branch always exited 0). (Loop-1 finding.)
     if (hadFailure) {
@@ -865,7 +1001,7 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
       return 1;
     }
     if (outcome === "applied") {
-      p.outro(color.green("Uninstall complete (MCP registration removed)."));
+      p.outro(color.green("Uninstall complete — context-mode registration removed."));
     } else {
       p.outro(color.green("Already uninstalled — nothing to do."));
     }
@@ -877,6 +1013,7 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
     const platformInstall = applyPlatformInstall(platform, {
       pluginRoot: opts.pluginRoot,
       check: !!opts.check,
+      projectDir,
     });
     if (platformInstall) {
       if (platformInstall.changed) {

@@ -239,7 +239,8 @@ export class KiroAdapter extends BaseAdapter implements HookAdapter {
 
   validateHooks(pluginRoot: string): DiagnosticResult[] {
     const results: DiagnosticResult[] = [];
-    const defaultAgent = resolve(homedir(), ".kiro", "agents", "default.json");
+    // Must match configureAllHooks: Kiro auto-loads ~/.kiro/agents/kiro_default.json.
+    const defaultAgent = resolve(homedir(), ".kiro", "agents", "kiro_default.json");
 
     try {
       const config = JSON.parse(readFileSync(defaultAgent, "utf-8"));
@@ -279,7 +280,7 @@ export class KiroAdapter extends BaseAdapter implements HookAdapter {
       results.push({
         check: "Hook configuration",
         status: "warn",
-        message: "Could not read ~/.kiro/agents/default.json",
+        message: "Could not read ~/.kiro/agents/kiro_default.json",
         fix: "Run: context-mode upgrade",
       });
     }
@@ -337,7 +338,14 @@ export class KiroAdapter extends BaseAdapter implements HookAdapter {
   configureAllHooks(pluginRoot: string): string[] {
     const changes: string[] = [];
     const configDir = resolve(homedir(), ".kiro", "agents");
-    const defaultAgent = resolve(configDir, "default.json");
+    // Kiro auto-loads the built-in default agent "kiro_default" on a new chat
+    // session (kiro.dev/docs/cli/custom-agents: "a new chat session uses the
+    // default agent (kiro_default)"). A file named default.json defines an
+    // INACTIVE custom agent literally named "default" (the filename becomes the
+    // agent name), which the user would have to `/agent` swap to — so hooks
+    // there never fire in a normal session. Write to kiro_default.json so the
+    // hooks register on the agent Kiro actually loads.
+    const defaultAgent = resolve(configDir, "kiro_default.json");
 
     try {
       mkdirSync(configDir, { recursive: true });

@@ -88,8 +88,7 @@ function runSetup(opts: {
  * to user-home defaults so setup writes the same file the adapter's
  * checkPluginRegistration() (doctor) reads — verified by the official-source
  * workflow (see docs/setup-improvements.md "Workflow verification findings").
- *   - antigravity: ~/.gemini/antigravity/mcp_config.json by default
- *     (or antigravity-cli when ANTIGRAVITY_CLI_ALIAS is set), home;
+ *   - antigravity: ~/.gemini/antigravity/mcp_config.json (home);
  *     mcp_config.json, NOT mcp.json — matches AntigravityAdapter.getConfigDir.
  *   - kiro: ~/.kiro/settings/mcp.json (home default) — matches
  *     KiroAdapter.getSettingsPath.
@@ -335,14 +334,42 @@ describe("setup formerly manual platforms", () => {
     expect(parsed.plugin).toContain("context-mode");
   });
 
-  test("openclaw writes plugin entry plus MCP sidecar", () => {
+  test("openclaw writes plugin entry plus MCP sidecar to the gateway's ~/.openclaw config (not CWD)", () => {
     const home = mkTmp("ctx-setup-openclaw-home-");
     const cwd = mkTmp("ctx-setup-openclaw-proj-");
     const r = runSetup({ home, cwd, args: [], platform: "openclaw" });
     expect(r.status).toBe(0);
-    const parsed = JSON.parse(readFileSync(resolve(cwd, "openclaw.json"), "utf-8"));
+    // The gateway loads ~/.openclaw/openclaw.json, NOT a project-local file —
+    // setup must write there so OpenClaw actually sees the registration.
+    expect(existsSync(resolve(cwd, "openclaw.json"))).toBe(false);
+    const parsed = JSON.parse(readFileSync(resolve(home, ".openclaw", "openclaw.json"), "utf-8"));
     expect(parsed.plugins.entries["context-mode"]).toBeDefined();
     expect(parsed.mcp.servers["context-mode"].command).toBe("node");
+  });
+
+  test("opencode --uninstall removes context-mode from the plugin array (not a no-op)", () => {
+    const home = mkTmp("ctx-setup-opencode-uninstall-");
+    expect(runSetup({ home, args: [], platform: "opencode" }).status).toBe(0);
+    const cfgPath = resolve(home, "opencode.json");
+    expect(JSON.parse(readFileSync(cfgPath, "utf-8")).plugin).toContain("context-mode");
+
+    const r = runSetup({ home, args: ["--uninstall"], platform: "opencode" });
+    expect(r.status).toBe(0);
+    const after = JSON.parse(readFileSync(cfgPath, "utf-8"));
+    expect(after.plugin ?? []).not.toContain("context-mode");
+  });
+
+  test("openclaw --uninstall removes plugins.entries + mcp.servers context-mode (not a no-op)", () => {
+    const home = mkTmp("ctx-setup-openclaw-uninstall-");
+    expect(runSetup({ home, args: [], platform: "openclaw" }).status).toBe(0);
+    const cfgPath = resolve(home, ".openclaw", "openclaw.json");
+    expect(JSON.parse(readFileSync(cfgPath, "utf-8")).plugins.entries["context-mode"]).toBeDefined();
+
+    const r = runSetup({ home, args: ["--uninstall"], platform: "openclaw" });
+    expect(r.status).toBe(0);
+    const after = JSON.parse(readFileSync(cfgPath, "utf-8"));
+    expect(after.plugins?.entries?.["context-mode"]).toBeUndefined();
+    expect(after.mcp?.servers?.["context-mode"]).toBeUndefined();
   });
 
   test("pi installs extension wrapper", () => {

@@ -122,23 +122,10 @@ describe("AntigravityAdapter", () => {
   // ── Config paths ──────────────────────────────────────
 
   describe("config paths", () => {
-    it("settings path defaults to ~/.gemini/antigravity/mcp_config.json", () => {
+    it("settings path is ~/.gemini/antigravity/mcp_config.json", () => {
       expect(adapter.getSettingsPath()).toBe(
         resolve(homedir(), ".gemini", "antigravity", "mcp_config.json"),
       );
-    });
-
-    it("settings path uses antigravity-cli when the CLI marker is present", () => {
-      const previous = process.env.ANTIGRAVITY_CLI_ALIAS;
-      process.env.ANTIGRAVITY_CLI_ALIAS = "agy";
-      try {
-        expect(adapter.getSettingsPath()).toBe(
-          resolve(homedir(), ".gemini", "antigravity-cli", "mcp_config.json"),
-        );
-      } finally {
-        if (previous === undefined) delete process.env.ANTIGRAVITY_CLI_ALIAS;
-        else process.env.ANTIGRAVITY_CLI_ALIAS = previous;
-      }
     });
 
     it("session dir is under ~/.gemini/context-mode/sessions/", () => {

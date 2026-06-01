@@ -531,6 +531,30 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
     return changes;
   }
 
+  /**
+   * Inverse of configureAllHooks — strip "context-mode" from the `plugin`
+   * array so `setup --uninstall` actually removes the entry the host loads
+   * (opencode/kilo). Without this, uninstall left the plugin registered and
+   * the host kept loading context-mode while setup reported success.
+   */
+  unconfigureHooks(_pluginRoot: string): string[] {
+    const settings = this.readSettings();
+    if (!settings) return [];
+    const changes: string[] = [];
+    if (Array.isArray(settings.plugin)) {
+      const before = settings.plugin as unknown[];
+      const after = before.filter(
+        (p) => !(typeof p === "string" && p.includes("context-mode")),
+      );
+      if (after.length !== before.length) {
+        settings.plugin = after;
+        changes.push("Removed context-mode from plugin array");
+      }
+    }
+    if (changes.length > 0) this.writeSettings(settings);
+    return changes;
+  }
+
   backupSettings(): string | null {
     const check = this.checkPluginRegistration();
     

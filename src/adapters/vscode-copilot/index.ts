@@ -152,6 +152,19 @@ export class VSCodeCopilotAdapter extends CopilotBaseAdapter {
       const config = parseJsonc<Record<string, unknown>>(raw) ?? {};
       const hooks = config.hooks as Record<string, unknown> | undefined;
 
+      // GitHub Copilot's hooks schema REQUIRES top-level "version": 1 (shared
+      // with the VS Code Copilot hooks runtime); without it the file is
+      // rejected and NO hooks fire — so flag a version-less file rather than
+      // pass on hook-presence alone.
+      results.push({
+        check: "Hooks schema version",
+        status: config.version === 1 ? "pass" : "fail",
+        message: config.version === 1
+          ? 'context-mode.json declares the required "version": 1'
+          : 'context-mode.json is missing top-level "version": 1 — Copilot rejects the file, so hooks never fire',
+        ...(config.version === 1 ? {} : { fix: "context-mode upgrade" }),
+      });
+
       // Check PreToolUse
       if (hooks?.[VSCODE_HOOK_NAMES.PRE_TOOL_USE]) {
         results.push({

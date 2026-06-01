@@ -265,8 +265,13 @@ describe("OpenClawAdapter", () => {
   // ── Config paths ──────────────────────────────────────
 
   describe("config paths", () => {
-    it("settings path is openclaw.json (relative)", () => {
-      expect(adapter.getSettingsPath()).toBe(resolve("openclaw.json"));
+    it("settings path is the gateway's ~/.openclaw/openclaw.json (not CWD)", () => {
+      // getSettingsPath resolves the file the gateway actually loads
+      // ($OPENCLAW_CONFIG_PATH / $OPENCLAW_STATE_DIR / ~/.openclaw), NOT
+      // process.cwd()/openclaw.json (which the gateway never reads).
+      expect(adapter.getSettingsPath()).toBe(
+        resolve(homedir(), ".openclaw", "openclaw.json"),
+      );
     });
 
     it("session dir is under ~/.openclaw/context-mode/sessions/", () => {

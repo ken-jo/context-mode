@@ -112,7 +112,14 @@ export function isContextModeHook(
 export function buildHookCommand(hookType: HookType, pluginRoot?: string): string {
   const scriptName = HOOK_SCRIPTS[hookType];
   if (pluginRoot && scriptName) {
-    return buildNodeCommand(`${pluginRoot}/hooks/${scriptName}`);
+    // Gemini's hook scripts ship under hooks/gemini-cli/ (NOT the repo-root
+    // hooks/ dir, which holds the Claude-Code scripts). The bare HOOK_SCRIPTS
+    // names must be joined with the gemini-cli/ segment or the written command
+    // points at a non-existent file and Gemini silently skips the hook. This
+    // matches src/cli.ts HOOK_MAP (hooks/gemini-cli/<event>.mjs) and
+    // setHookPermissions (index.ts joins hooks/gemini-cli over the same bare
+    // names — so do NOT add the segment to HOOK_SCRIPTS itself).
+    return buildNodeCommand(`${pluginRoot}/hooks/gemini-cli/${scriptName}`);
   }
   return `context-mode hook gemini-cli ${hookType.toLowerCase()}`;
 }

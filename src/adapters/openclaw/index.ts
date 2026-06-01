@@ -30,6 +30,23 @@ import { homedir } from "node:os";
 import { BaseAdapter } from "../base.js";
 import { parseJsonc } from "../../util/jsonc.js";
 
+/**
+ * Resolve the openclaw.json the GATEWAY actually loads, mirroring
+ * scripts/install-openclaw-plugin.sh + the gateway docs: $OPENCLAW_CONFIG_PATH,
+ * else $OPENCLAW_STATE_DIR/openclaw.json, else ~/.openclaw/openclaw.json. The
+ * gateway NEVER loads a CWD/project-local openclaw.json (it only reads a CWD
+ * .env), so the old `resolve("openclaw.json")` (process.cwd()) dropped the file
+ * where nothing reads it — setup reported success but context-mode never
+ * loaded. (Loop-5 official-source workflow finding.)
+ */
+export function openclawConfigPath(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.OPENCLAW_CONFIG_PATH) return resolve(env.OPENCLAW_CONFIG_PATH);
+  const stateDir = env.OPENCLAW_STATE_DIR
+    ? resolve(env.OPENCLAW_STATE_DIR)
+    : resolve(homedir(), ".openclaw");
+  return resolve(stateDir, "openclaw.json");
+}
+
 import type {
   HookAdapter,
   HookParadigm,
@@ -204,8 +221,9 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
   // ── Configuration ──────────────────────────────────────
 
   getSettingsPath(): string {
-    // OpenClaw uses openclaw.json in the project root or ~/.openclaw/openclaw.json
-    return resolve("openclaw.json");
+    // The single file the gateway loads (env / state-dir / ~/.openclaw),
+    // NOT process.cwd() — so setup writes and doctor reads where OpenClaw reads.
+    return openclawConfigPath();
   }
 
   /**
@@ -277,12 +295,16 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
   }
 
   readSettings(): Record<string, unknown> | null {
-    // Try project-local paths first, then global config
-    const paths = [
+    // Read the gateway's real config FIRST (env / state-dir / ~/.openclaw),
+    // then fall back to project-local files only as a last resort. Keeping the
+    // canonical path first means doctor validates the same file setup wrote and
+    // the gateway loads (was CWD-first, which masked the wrong-location bug).
+    const paths = [...new Set([
+      openclawConfigPath(),
       resolve("openclaw.json"),
       resolve(".openclaw", "openclaw.json"),
       join(homedir(), ".openclaw", "openclaw.json"),
-    ];
+    ])];
     for (const configPath of paths) {
       let raw: string;
       try {
@@ -309,8 +331,9 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
   }
 
   writeSettings(settings: Record<string, unknown>): void {
-    // Write to openclaw.json in current directory
-    const configPath = resolve("openclaw.json");
+    // Write to the file the gateway actually loads (env / state-dir /
+    // ~/.openclaw), NOT process.cwd() — otherwise the gateway never sees it.
+    const configPath = openclawConfigPath();
     mkdirSync(dirname(configPath), { recursive: true });
     writeFileSync(
       configPath,
@@ -552,8 +575,53 @@ export class OpenClawAdapter extends BaseAdapter implements HookAdapter {
     return changes;
   }
 
+  /**
+   * Inverse of configureAllHooks — remove the four keys context-mode registers
+   * (plugins.entries, plugins.allow, plugins.slots.contextEngine, and
+   * mcp.servers.context-mode) so `setup --uninstall` fully de-registers from
+   * the gateway config. Resets the contextEngine slot only when it points at
+   * context-mode. Preserves all sibling entries/servers.
+   */
+  unconfigureHooks(_pluginRoot: string): string[] {
+    const settings = this.readSettings();
+    if (!settings) return [];
+    const changes: string[] = [];
+    const plugins = settings.plugins as Record<string, unknown> | undefined;
+    if (plugins && typeof plugins === "object") {
+      const entries = plugins.entries as Record<string, unknown> | undefined;
+      if (entries && "context-mode" in entries) {
+        delete entries["context-mode"];
+        changes.push("Removed context-mode from plugins.entries");
+      }
+      if (Array.isArray(plugins.allow)) {
+        const before = plugins.allow as unknown[];
+        const after = before.filter((p) => p !== "context-mode");
+        if (after.length !== before.length) {
+          plugins.allow = after;
+          changes.push("Removed context-mode from plugins.allow");
+        }
+      }
+      const slots = plugins.slots as Record<string, unknown> | undefined;
+      if (slots && slots.contextEngine === "context-mode") {
+        delete slots.contextEngine;
+        changes.push("Cleared context-mode context engine slot");
+      }
+    }
+    const mcp = settings.mcp as Record<string, unknown> | undefined;
+    if (mcp && typeof mcp === "object") {
+      const servers = mcp.servers as Record<string, unknown> | undefined;
+      if (servers && "context-mode" in servers) {
+        delete servers["context-mode"];
+        changes.push("Removed context-mode from mcp.servers");
+      }
+    }
+    if (changes.length > 0) this.writeSettings(settings);
+    return changes;
+  }
+
   backupSettings(): string | null {
     const paths = [
+      openclawConfigPath(),
       resolve("openclaw.json"),
       resolve(".openclaw", "openclaw.json"),
       join(homedir(), ".openclaw", "openclaw.json"),

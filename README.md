@@ -525,39 +525,48 @@ Full configs: [`configs/opencode/opencode.json`](configs/opencode/opencode.json)
 
 context-mode runs as a native [OpenClaw](https://github.com/openclaw) gateway plugin, targeting **Pi Agent** sessions (Read/Write/Edit/Bash tools). Unlike other platforms, there's no separate MCP server — the plugin registers directly into the gateway runtime via OpenClaw's [plugin API](https://docs.openclaw.ai/tools/plugin).
 
-**Install:**
+**Install (full — recommended):** context-mode does **not** install the OpenClaw
+gateway; it registers into an already-installed, already-started gateway. The
+dedicated installer does everything that gateway needs to actually *load*
+context-mode:
 
-1. Run setup from a project or gateway config directory:
+```bash
+git clone https://github.com/mksglu/context-mode.git
+cd context-mode
+npm run install:openclaw
+```
 
-   ```bash
-   npm install -g context-mode
-   context-mode setup openclaw
-   ```
+It runs `npm install`, `npm run build`, the `better-sqlite3` native rebuild,
+writes the `extensions/context-mode/` plugin module, registers the config
+(`plugins.entries`, `plugins.allow`, `plugins.slots.contextEngine`,
+`mcp.servers.context-mode`), and restarts the gateway via SIGUSR1. It targets
+`$OPENCLAW_STATE_DIR` (default: `/openclaw`); pass a path to override:
 
-   This writes `openclaw.json` with `plugins.entries["context-mode"]`,
-   `plugins.allow`, `plugins.slots.contextEngine`, and the required
-   `mcp.servers.context-mode` sidecar. Re-running is idempotent and preserves
-   other plugin/MCP entries.
+```bash
+npm run install:openclaw -- /path/to/openclaw-state
+```
 
-2. If you need the legacy gateway-state installer instead, use:
+Common locations: **Docker** — `/openclaw` (the default). **Local** —
+`~/.openclaw` or wherever you set `OPENCLAW_STATE_DIR`.
 
-   ```bash
-   git clone https://github.com/mksglu/context-mode.git
-   cd context-mode
-   npm run install:openclaw
-   ```
+**Config-only registration:** if the plugin module is already on disk and you
+only need to (re)register it in the gateway config:
 
-   The installer uses `$OPENCLAW_STATE_DIR` from your environment (default: `/openclaw`). To specify a custom path:
+```bash
+npm install -g context-mode
+context-mode setup openclaw
+```
 
-   ```bash
-   npm run install:openclaw -- /path/to/openclaw-state
-   ```
+`setup openclaw` writes `plugins.entries["context-mode"]`, `plugins.allow`,
+`plugins.slots.contextEngine`, and the `mcp.servers.context-mode` sidecar into
+the gateway's config file — resolved as `$OPENCLAW_CONFIG_PATH`, else
+`$OPENCLAW_STATE_DIR/openclaw.json`, else `~/.openclaw/openclaw.json` (**not**
+the current directory). Re-running is idempotent and preserves other
+plugin/MCP entries. It does **not** lay down the plugin module or restart the
+gateway — run `npm run install:openclaw` for the module, then restart the
+gateway (or send SIGUSR1) for the change to take effect.
 
-   Common locations: **Docker** — `/openclaw` (the default). **Local** — `~/.openclaw` or wherever you set `OPENCLAW_STATE_DIR`.
-
-   The installer handles everything: `npm install`, `npm run build`, `better-sqlite3` native rebuild, extension registration in `runtime.json`, and gateway restart via SIGUSR1.
-
-3. Open a Pi Agent session.
+Then open a Pi Agent session.
 
 **Verify:** The plugin registers 8 hooks via [`api.on()`](https://docs.openclaw.ai/tools/plugin) (lifecycle) and [`api.registerHook()`](https://docs.openclaw.ai/tools/plugin) (commands). Type `ctx stats` to confirm tools are loaded.
 

@@ -43,27 +43,35 @@ describe("openclaw: upgrade registers the MCP sidecar (Loop-2)", () => {
   it("configureAllHooks writes mcp.servers.context-mode + checkPluginRegistration requires it", async () => {
     const { OpenClawAdapter } = await import("../../src/adapters/openclaw/index.js");
     const dir = mkTmp("ctx-loop2-openclaw-");
-    process.chdir(dir); // writeSettings + readSettings resolve openclaw.json in cwd
-    const adapter = new OpenClawAdapter();
+    // Point the resolver at the tmp config so writeSettings/readSettings/doctor
+    // target the gateway's real path (env/state-dir/~/.openclaw, no longer CWD).
+    const prevConfigPath = process.env.OPENCLAW_CONFIG_PATH;
+    process.env.OPENCLAW_CONFIG_PATH = resolve(dir, "openclaw.json");
+    try {
+      const adapter = new OpenClawAdapter();
 
-    // Before configureAllHooks: a plugins.entries-only config must NOT pass.
-    writeFileSync(
-      resolve(dir, "openclaw.json"),
-      JSON.stringify({ plugins: { entries: { "context-mode": { enabled: true } } } }),
-    );
-    expect(adapter.checkPluginRegistration().status).toBe("fail");
+      // Before configureAllHooks: a plugins.entries-only config must NOT pass.
+      writeFileSync(
+        resolve(dir, "openclaw.json"),
+        JSON.stringify({ plugins: { entries: { "context-mode": { enabled: true } } } }),
+      );
+      expect(adapter.checkPluginRegistration().status).toBe("fail");
 
-    // configureAllHooks must add the MCP sidecar.
-    adapter.configureAllHooks("/abs/plugin/root");
-    const cfg = JSON.parse(readFileSync(resolve(dir, "openclaw.json"), "utf-8"));
-    expect(cfg.mcp?.servers?.["context-mode"]).toBeDefined();
-    expect(cfg.mcp.servers["context-mode"].command).toBe("node");
-    expect(cfg.mcp.servers["context-mode"].args[0]).toMatch(/server\.bundle\.mjs$/);
-    // plugins.allow mirrors the installer.
-    expect(cfg.plugins.allow).toContain("context-mode");
+      // configureAllHooks must add the MCP sidecar.
+      adapter.configureAllHooks("/abs/plugin/root");
+      const cfg = JSON.parse(readFileSync(resolve(dir, "openclaw.json"), "utf-8"));
+      expect(cfg.mcp?.servers?.["context-mode"]).toBeDefined();
+      expect(cfg.mcp.servers["context-mode"].command).toBe("node");
+      expect(cfg.mcp.servers["context-mode"].args[0]).toMatch(/server\.bundle\.mjs$/);
+      // plugins.allow mirrors the installer.
+      expect(cfg.plugins.allow).toContain("context-mode");
 
-    // Now doctor passes (both entries + mcp.servers present).
-    expect(adapter.checkPluginRegistration().status).toBe("pass");
+      // Now doctor passes (both entries + mcp.servers present).
+      expect(adapter.checkPluginRegistration().status).toBe("pass");
+    } finally {
+      if (prevConfigPath === undefined) delete process.env.OPENCLAW_CONFIG_PATH;
+      else process.env.OPENCLAW_CONFIG_PATH = prevConfigPath;
+    }
   });
 });
 

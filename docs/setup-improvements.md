@@ -546,11 +546,11 @@ artifacts are incomplete.
   upgrade` now calls the same exported platform-install refresh used by setup
   before refreshing MCP registration, so existing Pi/OMP users are migrated
   instead of staying on stale MCP-only/manual state.
-- [x] **Antigravity Editor vs CLI path split fixed.** Antigravity Editor
-  defaults to `~/.gemini/antigravity/mcp_config.json`; Antigravity CLI uses
-  `~/.gemini/antigravity-cli/mcp_config.json` when `ANTIGRAVITY_CLI_ALIAS` is
-  present. This prevents setup/doctor from converging on the CLI file while
-  the Editor loads a different config.
+- [x] ~~**Antigravity Editor vs CLI path split.**~~ **REVERTED in Loop-5** —
+  see the Loop-5 section below. `ANTIGRAVITY_CLI_ALIAS` is the GENERAL
+  Antigravity detection marker (upstream gemini-cli `detect-ide.ts`), not a
+  CLI-only path discriminator, so the split mis-targeted Editor users.
+  Antigravity now always resolves `~/.gemini/antigravity/mcp_config.json`.
 - [x] **Windows/packaging regressions guarded.** setup tests use
   `node --import .../tsx/dist/loader.mjs` instead of `npx` shims, Windows env
   roots (`LOCALAPPDATA`/`APPDATA`) are isolated under fake HOME, and the npm
@@ -559,6 +559,107 @@ artifacts are incomplete.
   (`11 files / 388 tests`), `npm run build` (`assert-bundle` +
   `assert-asymmetric-drift`), and CLI smokes for Pi/OMP partial installs plus
   Antigravity Editor/CLI path selection all passed.
+
+## Loop-5 — full 15-platform completeness re-verification
+
+A dynamic workflow re-audited all 15 platforms against each agent CLI's
+OFFICIAL GitHub source + docs, with a COMPLETENESS oracle (does what `setup`
+writes actually make the REAL platform LOAD context-mode?) rather than the
+prior "setup writes where doctor reads" triangle — which was vacuously
+satisfied because setup and doctor share the same write/read target, so a
+wrong target/format passed both. 10 HIGH + 8 MEDIUM + 2 LOW were confirmed by
+adversarial verifiers; the install-breaking and uninstall-no-op classes below
+were fixed. (codex H9 was investigated and found to be a mis-scoped finding —
+no change; the maintainer's removal of the standalone MCP-TOML dedup was
+correct because the Codex PLUGIN manifest auto-provides MCP and doctor already
+passes that path.)
+
+- [x] **gemini-cli hook commands pointed at non-existent scripts (HIGH).**
+  `buildHookCommand` wrote `<root>/hooks/<event>.mjs`, but Gemini's scripts
+  ship under `hooks/gemini-cli/`. `beforetool.mjs`/`beforeagent.mjs` do not
+  exist at the repo root, so BeforeTool/BeforeAgent silently never fired.
+  Fixed to `<root>/hooks/gemini-cli/<event>.mjs` (matches cli.ts HOOK_MAP +
+  setHookPermissions; HOOK_SCRIPTS stays bare so permissions don't double the
+  prefix).
+- [x] **kiro hooks written to the wrong agent file (HIGH).** Hooks went to
+  `~/.kiro/agents/default.json`, but Kiro auto-loads `kiro_default.json` on a
+  new session (a `default.json` defines an inactive custom agent named
+  "default"). configureAllHooks, validateHooks, and `hookConfigPaths` now all
+  target `kiro_default.json` — so hooks register on the agent Kiro loads and
+  doctor reads the same file.
+- [x] **Copilot hooks missing required `version: 1` (HIGH).** GitHub Copilot's
+  hooks schema mandates a top-level `"version": 1`; without it the runtime
+  rejects the file and no hooks fire. `copilot-base.configureAllHooks` now
+  emits `version: 1` (idempotent/change-tracked), both committed templates
+  carry it, and `validateHooks` (vscode + jetbrains) now FAILS a version-less
+  file instead of passing on hook-presence alone.
+- [x] **cursor routing rule never installed by setup (HIGH).** Cursor's hooks
+  cannot inject `additional_context` (upstream bug), so the
+  `.cursor/rules/context-mode.mdc` rule is the primary routing mechanism — but
+  only the marketplace-plugin path installed it. `applyPlatformInstall` now
+  writes `<projectDir>/.cursor/rules/context-mode.mdc` (and uninstall removes
+  it); upgrade refreshes it via `refreshPlatformInstall`.
+- [x] **openclaw wrote config to the CWD the gateway never reads (HIGH).**
+  `writeSettings`/`getSettingsPath`/`readSettings` hardcoded
+  `resolve("openclaw.json")` (process.cwd()). The gateway loads
+  `$OPENCLAW_CONFIG_PATH` → `$OPENCLAW_STATE_DIR/openclaw.json` →
+  `~/.openclaw/openclaw.json` and never a CWD file. New `openclawConfigPath()`
+  resolver is used for read/write/backup + setup `hookConfigPaths`, so setup
+  writes (and doctor reads) the file the gateway actually loads. Per the
+  maintainer, context-mode must NOT install the gateway: `setup openclaw` is
+  config-only registration, and a post-setup note + README now direct users to
+  `npm run install:openclaw` for the plugin module + gateway restart (config
+  alone is insufficient — the gateway also needs the `extensions/context-mode/`
+  module on disk).
+- [x] **`setup --uninstall` was a silent no-op for opencode/kilo/openclaw
+  (HIGH/MEDIUM).** Uninstall only ran `removePlatformInstall` (pi/omp) +
+  `removeMcpRegistration`; the `plugin` array (opencode/kilo) and
+  `plugins.entries`/`allow`/`slots`/`mcp.servers` (openclaw) were never
+  touched, so the host kept loading context-mode while setup reported "Already
+  uninstalled". Added an optional `unconfigureHooks()` to HookAdapter
+  (implemented for OpenCode + OpenClaw); uninstall now inverts the
+  registration and reports "Uninstall complete" only when something was
+  removed. The misleading "hook entries left in place" note is suppressed for
+  platforms that are now fully de-registered.
+- [x] **omp uninstall left the managed SYSTEM.md block (MEDIUM).** Added
+  `removeManagedTextBlock` (inverse of `upsertManagedTextBlock`); omp uninstall
+  strips the managed block (and deletes the file if it was the whole content),
+  preserving user prose.
+- [x] **codex H9 investigated — NO change.** ctx_* tools load via the Codex
+  PLUGIN manifest (`.codex-plugin/{plugin,mcp}.json`); doctor PASSES that path.
+  The standalone-CLI TOML step is a documented manual note, and the prior
+  removal of the standalone MCP-TOML dedup was correct (plugin + standalone
+  would double-register). Hooks ≠ MCP tools; a global npm install alone does
+  not register MCP with Codex.
+- [x] **Pre-existing test fix.** `asymmetric-drift-assert.test.ts`'s
+  postinstall-clone case did not stub `scripts/lib/heal/runtime-heal-suite.mjs`
+  or `scripts/lib/runtime-precheck.mjs` (new postinstall imports), so it failed
+  on a clean checkout. Stubbed both in the clone.
+
+**Structural lesson:** "0 major per doctor" is not a completeness signal here —
+doctor and setup share write/read targets, so a wrong target/format passes
+both. Completeness must be measured against each platform's documented load
+path (official source), not the tool's own diagnostic.
+
+**Still open (lower severity, not yet done in Loop-5):**
+
+- [ ] **claude-code doctor honesty (MEDIUM).** After `setup claude-code` with
+  no `/plugin install`, doctor reports `Plugin enabled: WARN` (not FAIL) + exit
+  0 while hook checks pass off the checked-out repo. Consider FAIL when
+  context-mode is absent from both `enabledPlugins` AND `installed_plugins.json`,
+  reserving the WARN→standalone-MCP wording for when a standalone mcpServers
+  entry is actually detected. (Touches the reference platform — wants sign-off.)
+- [ ] **codex `--check` `.broken` residue (MEDIUM).** When `~/.codex/hooks.json`
+  is malformed, `configureAllHooks` writes a `hooks.json.broken-<ts>.bak` the
+  dry-run snapshot does not restore. Gate the backup behind the dry-run flag.
+- [ ] **restoreSnapshots mtime churn (LOW).** `--check` rewrites every
+  pre-existing snapshotted file byte-identical, bumping mtime; compare bytes and
+  only write on difference.
+- [ ] **No `partial` SetupOutcome (LOW).** codex/jetbrains print the same green
+  "Setup complete" as a fully-wired install even though a required manual step
+  (TOML MCP / JetBrains UI) remains. Add a `partial` outcome + yellow outro.
+- [ ] **cursor doctor `.mdc` check.** doctor does not yet warn when
+  `.cursor/rules/context-mode.mdc` is absent.
 
 ## Open questions
 

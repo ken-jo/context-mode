@@ -365,7 +365,18 @@ export abstract class CopilotBaseAdapter extends BaseAdapter implements HookAdap
       }
     }
 
+    // GitHub Copilot's hooks schema REQUIRES a top-level "version": 1 — without
+    // it the runtime rejects the file and the hooks never fire (docs.github.com
+    // /en/copilot/reference/hooks-configuration: "The JSON must contain a
+    // version field with a value of 1"). Treat its absence as drift so setup
+    // --check / idempotency stays honest. VS Code shares this hooks schema and
+    // accepts the version field. (Loop-5 official-source workflow finding.)
+    if (settings.version !== 1) {
+      changes.push("Set hooks schema version to 1");
+    }
+
     if (changes.length > 0) {
+      settings.version = 1;
       settings.hooks = hooks;
       this.writeSettings(settings);
       changes.push(`Wrote hook config to ${this.getSettingsPath()}`);

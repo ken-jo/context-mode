@@ -267,6 +267,44 @@ describe("OpenCodeAdapter", () => {
       rmSync(root, { recursive: true, force: true });
     });
 
+    it("treats only the exact bare name as context-mode — sibling plugins survive (precise match)", () => {
+      const root = mkdtempSync(join(tmpdir(), "opencode-adapter-"));
+      const dir = join(root, "project");
+      const home = join(root, "home");
+      const conf = join(home, ".config", "opencode");
+      const file = join(conf, "opencode.json");
+      const src = resolve(process.cwd(), "src", "adapters", "opencode", "index.ts");
+      const tsx = resolve(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
+      mkdirSync(dir, { recursive: true });
+      mkdirSync(conf, { recursive: true });
+      // A sibling whose name CONTAINS the substring "context-mode" must never be
+      // matched or dropped — only the exact bare name is ours.
+      writeFileSync(file, JSON.stringify({ plugin: ["@acme/context-mode-helper"] }, null, 2) + "\n");
+
+      // configureAllHooks ADDS the exact name without touching the sibling.
+      const add = spawnSync(
+        process.execPath,
+        [tsx, "-e", `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify(a.configureAllHooks('/tmp/plugin')))`],
+        { cwd: dir, env: env(home), encoding: "utf-8" },
+      );
+      expect(add.status).toBe(0);
+      expect(JSON.parse(readFileSync(file, "utf-8")).plugin).toEqual([
+        "@acme/context-mode-helper",
+        "context-mode",
+      ]);
+
+      // unconfigureHooks removes ONLY the exact name, leaving the sibling.
+      const rm = spawnSync(
+        process.execPath,
+        [tsx, "-e", `import { OpenCodeAdapter } from ${JSON.stringify(src)};const a=new OpenCodeAdapter();console.log(JSON.stringify(a.unconfigureHooks('/tmp/plugin')))`],
+        { cwd: dir, env: env(home), encoding: "utf-8" },
+      );
+      expect(rm.status).toBe(0);
+      expect(JSON.parse(readFileSync(file, "utf-8")).plugin).toEqual(["@acme/context-mode-helper"]);
+
+      rmSync(root, { recursive: true, force: true });
+    });
+
     it("validateHooks warns when a legacy mcp.context-mode block remains after upgrade (#574)", () => {
       const root = mkdtempSync(join(tmpdir(), "opencode-adapter-"));
       const dir = join(root, "project");

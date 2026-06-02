@@ -506,7 +506,7 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
 
     // Add "context-mode" to the plugin array
     const plugins = Array.isArray(settings.plugin) ? [...settings.plugin] as string[] : [];
-    if (!plugins.some((p) => typeof p === "string" && p.includes("context-mode"))) {
+    if (!plugins.some((p) => this.isContextModeEntry(p))) {
       plugins.push("context-mode");
       changes.push("Added context-mode to plugin array");
     }
@@ -543,9 +543,7 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
     const changes: string[] = [];
     if (Array.isArray(settings.plugin)) {
       const before = settings.plugin as unknown[];
-      const after = before.filter(
-        (p) => !(typeof p === "string" && p.includes("context-mode")),
-      );
+      const after = before.filter((p) => !this.isContextModeEntry(p));
       if (after.length !== before.length) {
         settings.plugin = after;
         changes.push("Removed context-mode from plugin array");
@@ -588,9 +586,20 @@ export class OpenCodeAdapter extends BaseAdapter implements HookAdapter {
   /**
    * Check whether a settings object has the context-mode plugin registered.
    */
+  /**
+   * True only for context-mode's OWN plugin entry — the exact bare npm name
+   * (optionally version-tagged). Precise on purpose: a plain substring test
+   * would also match (and, in `unconfigureHooks`, DELETE) unrelated sibling
+   * plugins whose names merely contain "context-mode" (e.g.
+   * "@acme/context-mode-helper").
+   */
+  private isContextModeEntry(p: unknown): boolean {
+    return typeof p === "string" && (p === "context-mode" || p.startsWith("context-mode@"));
+  }
+
   private hasContextModePlugin(settings: Record<string, unknown>): boolean {
     const plugins = settings.plugin;
-    return Array.isArray(plugins) && plugins.some((p: unknown) => typeof p === "string" && p.includes("context-mode"));
+    return Array.isArray(plugins) && plugins.some((p) => this.isContextModeEntry(p));
   }
 
   private hasLegacyContextModeMcp(settings: Record<string, unknown>): boolean {

@@ -32,6 +32,13 @@ templates and the README boilerplate is already visible. The goal is:
 > `npm install -g context-mode && context-mode setup` — done. Auto-detect
 > the host, write the canonical config, never clobber the user's keys.
 
+> **Not a replacement.** `setup` *automates* the per-platform manual steps — it
+> writes the same artifacts you could add by hand, and the manual per-platform
+> README docs stay (both paths are supported). It is also **separate from
+> `context-mode upgrade`**: upgrade pulls + rebuilds, then reuses setup's
+> `refreshPlatformInstall` / `refreshMcpRegistration` to refresh registration —
+> only that write logic is shared; the commands are not merged.
+
 Reference inspirations:
 - **oh-my-codex (OMX)** — single `omx setup` flow, declarative templates
 - **oh-my-claudecode (OMC)** — adapter-driven setup with `omc-setup` skill

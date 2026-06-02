@@ -214,6 +214,10 @@ if (args[0] === "--help" || args[0] === "-h" || args[0] === "help") {
 } else if (args[0] === "doctor") {
   doctor().then((code) => process.exit(code));
 } else if (args[0] === "setup") {
+  // `setup` installs/configures the host (writes the same artifacts as the
+  // manual README steps). It is SEPARATE from `upgrade` below — the only shared
+  // piece is setup.ts's refreshPlatformInstall, which upgrade reuses. Don't
+  // merge the two commands. See the src/setup.ts header.
   const platformArg = args[1] && !args[1].startsWith("--") ? args[1] : undefined;
   const check = args.includes("--check");
   const force = args.includes("--force");

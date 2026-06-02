@@ -1,12 +1,20 @@
 /**
  * context-mode setup — auto-detect host CLI and apply canonical config.
  *
- * Goal: replace the 14× repeated "edit this JSON file" README sections with a
- * single command:
+ * Goal: consolidate the 14× repeated "edit this JSON file" README steps behind a
+ * single command (the manual steps stay documented — see below):
  *
  *   $ context-mode setup            # auto-detect, write hooks + MCP registration
  *   $ context-mode setup --check    # dry-run, exit 1 if changes would apply
  *   $ context-mode setup gemini-cli # force a specific platform
+ *
+ * setup AUTOMATES the per-platform manual steps — it writes the same artifacts a
+ * user would add by hand; the manual per-platform docs stay in the README (both
+ * paths are supported). setup is NOT a replacement for `context-mode upgrade`:
+ * `upgrade` (src/cli.ts) pulls latest code + rebuilds, THEN reuses this file's
+ * `refreshPlatformInstall` / `refreshMcpRegistration` to refresh registration.
+ * Only that registration-WRITE logic is shared (one source of truth); the two
+ * commands stay distinct — do not conflate or merge them.
  *
  * Per-platform behavior (MVP — see docs/setup-improvements.md A1):
  *

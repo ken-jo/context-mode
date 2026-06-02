@@ -443,7 +443,7 @@ Full configs: [`configs/cursor/hooks.json`](configs/cursor/hooks.json) | [`confi
    TypeScript plugin in-process, so there is no redundant stdio MCP child per
    session.
 
-   Manual equivalent:
+   Manual equivalent — add to `opencode.json` in your project root (or `~/.config/opencode/opencode.json` for global):
 
    ```json
    {
@@ -493,7 +493,7 @@ Full configs: [`configs/opencode/opencode.json`](configs/opencode/opencode.json)
    if present. KiloCode calls context-mode's TypeScript plugin in-process, so
    there is no redundant stdio MCP child per session.
 
-   Manual equivalent:
+   Manual equivalent — add to `kilo.json` in your project root (or `~/.config/kilo/kilo.json` for global):
 
    ```json
    {
@@ -990,6 +990,32 @@ Full configs: [`configs/kiro/mcp.json`](configs/kiro/mcp.json) | [`configs/kiro/
    `~/.pi/agent/extensions/context-mode/` pointing at the active
    context-mode package. The Pi extension exposes `ctx_*` tools through its
    bundled bridge, so no separate Pi MCP file is required.
+
+   Manual equivalent — install the package into Pi yourself:
+
+   ```bash
+   pi install npm:context-mode
+   ```
+
+   or add it to `~/.pi/agent/settings.json` (or `.pi/settings.json` for project-level):
+
+   ```json
+   {
+     "packages": ["npm:context-mode"]
+   }
+   ```
+
+   then register the MCP server in `~/.pi/agent/mcp.json` (or `.pi/mcp.json` for project-level):
+
+   ```json
+   {
+     "mcpServers": {
+       "context-mode": {
+         "command": "context-mode"
+       }
+     }
+   }
+   ```
 
 3. Restart Pi.
 

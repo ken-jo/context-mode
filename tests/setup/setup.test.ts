@@ -97,10 +97,12 @@ function expectedTargetPath(platform: string, home: string, cwd: string): string
   switch (platform) {
     case "gemini-cli":   return resolve(home, ".gemini", "settings.json");
     case "vscode-copilot": return resolve(cwd, ".vscode", "mcp.json");
+    case "copilot-cli":  return resolve(home, ".copilot", "mcp-config.json");
     case "cursor":       return resolve(cwd, ".cursor", "mcp.json");
     case "qwen-code":    return resolve(home, ".qwen", "settings.json");
     case "kiro":         return resolve(home, ".kiro", "settings", "mcp.json");
     case "antigravity":  return resolve(home, ".gemini", "antigravity", "mcp_config.json");
+    case "antigravity-cli": return resolve(home, ".gemini", "config", "mcp_config.json");
     case "zed":
       return process.platform === "win32"
         ? resolve(home, "AppData", "Local", "Zed", "settings.json")
@@ -112,7 +114,7 @@ function expectedTargetPath(platform: string, home: string, cwd: string): string
 // kiro + antigravity moved to HOME_SCOPED — their default scope is now user
 // (the file doctor reads). vscode-copilot + cursor remain genuinely
 // project-canonical.
-const HOME_SCOPED = ["gemini-cli", "qwen-code", "zed", "kiro", "antigravity"] as const;
+const HOME_SCOPED = ["gemini-cli", "qwen-code", "zed", "kiro", "antigravity", "antigravity-cli", "copilot-cli"] as const;
 const PROJECT_SCOPED = ["vscode-copilot", "cursor"] as const;
 const ALL_JSON_STDIO = [...HOME_SCOPED, ...PROJECT_SCOPED];
 
@@ -130,6 +132,22 @@ describe("setup↔doctor path agreement", () => {
     const real = (await import("node:os")).homedir();
     expect(new AntigravityAdapter().getSettingsPath()).toBe(
       expectedTargetPath("antigravity", real, process.cwd()),
+    );
+  });
+
+  test("antigravity-cli: adapter read path == setup default write path", async () => {
+    const { AntigravityCliAdapter } = await import("../../src/adapters/antigravity-cli/index.js");
+    const real = (await import("node:os")).homedir();
+    expect(new AntigravityCliAdapter().getSettingsPath()).toBe(
+      expectedTargetPath("antigravity-cli", real, process.cwd()),
+    );
+  });
+
+  test("copilot-cli: adapter MCP read path == setup default write path", async () => {
+    const { copilotCliMcpConfigPath } = await import("../../src/adapters/copilot-cli/index.js");
+    const real = (await import("node:os")).homedir();
+    expect(copilotCliMcpConfigPath()).toBe(
+      expectedTargetPath("copilot-cli", real, process.cwd()),
     );
   });
 
@@ -211,6 +229,14 @@ describe("setup matrix — write per platform", () => {
         : "mcpServers";
       expect(parsed[containerKey]).toBeDefined();
       expect(parsed[containerKey]["context-mode"]).toBeDefined();
+      if (platform === "copilot-cli") {
+        expect(parsed.mcpServers["context-mode"]).toMatchObject({
+          type: "local",
+          command: "context-mode",
+          args: [],
+          tools: ["*"],
+        });
+      }
       // Loop-1 regression: Zed's context_servers entry must be FLAT —
       // `command` is a STRING ("context-mode"), not the nested
       // `{ path, args }` object that current Zed rejects (server fails to load).
@@ -403,6 +429,13 @@ describe("setup MCP-only honesty banner (Item E2)", () => {
   test("antigravity setup announces best-effort fidelity", () => {
     const home = mkTmp("ctx-setup-antigravity-");
     const r = runSetup({ home, args: [], platform: "antigravity" });
+    expect(r.stdout + r.stderr).toMatch(/best-effort/i);
+    expect(r.stdout + r.stderr).toMatch(/60%/);
+  });
+
+  test("antigravity-cli setup announces best-effort fidelity", () => {
+    const home = mkTmp("ctx-setup-agy-");
+    const r = runSetup({ home, args: [], platform: "antigravity-cli" });
     expect(r.stdout + r.stderr).toMatch(/best-effort/i);
     expect(r.stdout + r.stderr).toMatch(/60%/);
   });

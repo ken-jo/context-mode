@@ -20,10 +20,12 @@ import { CodexAdapter } from "../../src/adapters/codex/index.js";
 import { OpenCodeAdapter } from "../../src/adapters/opencode/index.js";
 import { CursorAdapter } from "../../src/adapters/cursor/index.js";
 import { VSCodeCopilotAdapter } from "../../src/adapters/vscode-copilot/index.js";
+import { CopilotCliAdapter } from "../../src/adapters/copilot-cli/index.js";
 import { JetBrainsCopilotAdapter } from "../../src/adapters/jetbrains-copilot/index.js";
 import { KiroAdapter } from "../../src/adapters/kiro/index.js";
 import { ZedAdapter } from "../../src/adapters/zed/index.js";
 import { AntigravityAdapter } from "../../src/adapters/antigravity/index.js";
+import { AntigravityCliAdapter } from "../../src/adapters/antigravity-cli/index.js";
 import { OpenClawAdapter } from "../../src/adapters/openclaw/index.js";
 
 /**
@@ -142,6 +144,19 @@ describe("Adapter memory conventions", () => {
     });
   });
 
+  describe("CopilotCliAdapter", () => {
+    const a = new CopilotCliAdapter();
+    it("getConfigDir is ~/.copilot", () => {
+      expect(a.getConfigDir()).toBe(join(homedir(), ".copilot"));
+    });
+    it("getInstructionFiles includes .github/copilot-instructions.md and AGENTS.md", () => {
+      expect(a.getInstructionFiles()).toEqual([".github/copilot-instructions.md", "AGENTS.md"]);
+    });
+    it("getMemoryDir is ~/.copilot/memory", () => {
+      expect(a.getMemoryDir()).toBe(join(homedir(), ".copilot", "memory"));
+    });
+  });
+
   describe("JetBrainsCopilotAdapter", () => {
     const a = new JetBrainsCopilotAdapter();
     it("getConfigDir is <project>/.github (absolute)", () => {
@@ -199,6 +214,21 @@ describe("Adapter memory conventions", () => {
     });
   });
 
+  describe("AntigravityCliAdapter", () => {
+    const a = new AntigravityCliAdapter();
+    it("getConfigDir is ~/.gemini/antigravity-cli by default", () => {
+      expect(a.getConfigDir()).toBe(join(homedir(), ".gemini", "antigravity-cli"));
+    });
+    it("getInstructionFiles is ['GEMINI.md']", () => {
+      expect(a.getInstructionFiles()).toEqual(["GEMINI.md"]);
+    });
+    it("getMemoryDir is ~/.gemini/antigravity-cli/memory by default", () => {
+      expect(a.getMemoryDir()).toBe(
+        join(homedir(), ".gemini", "antigravity-cli", "memory"),
+      );
+    });
+  });
+
   describe("OpenClawAdapter", () => {
     const a = new OpenClawAdapter();
     it("getConfigDir is <project> root (absolute)", () => {
@@ -232,10 +262,12 @@ describe("Adapter memory conventions", () => {
       { name: "OpenCodeAdapter (kilo)", instance: new OpenCodeAdapter("kilo") },
       { name: "CursorAdapter", instance: new CursorAdapter() },
       { name: "VSCodeCopilotAdapter", instance: new VSCodeCopilotAdapter() },
+      { name: "CopilotCliAdapter", instance: new CopilotCliAdapter() },
       { name: "JetBrainsCopilotAdapter", instance: new JetBrainsCopilotAdapter() },
       { name: "KiroAdapter", instance: new KiroAdapter() },
       { name: "ZedAdapter", instance: new ZedAdapter() },
       { name: "AntigravityAdapter", instance: new AntigravityAdapter() },
+      { name: "AntigravityCliAdapter", instance: new AntigravityCliAdapter() },
       { name: "OpenClawAdapter", instance: new OpenClawAdapter() },
     ];
 

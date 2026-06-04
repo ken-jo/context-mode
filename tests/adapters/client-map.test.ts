@@ -10,6 +10,14 @@ describe("CLIENT_NAME_TO_PLATFORM", () => {
     expect(CLIENT_NAME_TO_PLATFORM["antigravity-client"]).toBe("antigravity");
   });
 
+  it("maps agy → antigravity-cli", () => {
+    expect(CLIENT_NAME_TO_PLATFORM["agy"]).toBe("antigravity-cli");
+  });
+
+  it('maps "GitHub Copilot CLI" → copilot-cli', () => {
+    expect(CLIENT_NAME_TO_PLATFORM["GitHub Copilot CLI"]).toBe("copilot-cli");
+  });
+
   it("maps gemini-cli-mcp-client → gemini-cli", () => {
     expect(CLIENT_NAME_TO_PLATFORM["gemini-cli-mcp-client"]).toBe("gemini-cli");
   });

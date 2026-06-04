@@ -1,5 +1,5 @@
 /**
- * adapters/registry — single source of truth for the 15 supported platforms.
+ * adapters/registry — single source of truth for the supported platforms.
  *
  * Before this module the same platform set was redeclared in FOUR places:
  *   - `_PLATFORM_ENV_VARS_RAW` in detect.ts        (env-var detection)
@@ -7,7 +7,7 @@
  *   - `getAdapter` in detect.ts                     (lazy adapter loader)
  *   - per-adapter `super([...])` calls              (session-dir base class)
  *
- * Adding adapter #16 required editing all of them; missing one was silent
+ * Adding a new adapter required editing all of them; missing one was silent
  * (cf. issue #473 follow-up for `pi`). Items D1 + D2 of
  * docs/setup-improvements.md collapse the first three into this module:
  * each adapter is declared once below with `{ id, sessionDirSegments,
@@ -88,6 +88,15 @@ export const ADAPTER_REGISTRY: ReadonlyArray<AdapterRegistryEntry> = [
       { name: "ANTIGRAVITY_CLI_ALIAS", role: "identification" },
     ],
     load: async () => new (await import("./antigravity/index.js")).AntigravityAdapter(),
+  },
+  // antigravity-cli (`agy`) — no verified runtime env marker. The standalone
+  // CLI is detected by its binary/config-dir tier in detect.ts and shares the
+  // Gemini-family session root, but it reads MCP from ~/.gemini/config/.
+  {
+    id: "antigravity-cli",
+    sessionDirSegments: [".gemini"],
+    envVars: [],
+    load: async () => new (await import("./antigravity-cli/index.js")).AntigravityCliAdapter(),
   },
   // cursor (VSCode fork) — listed BEFORE vscode-copilot. CURSOR_TRACE_ID
   // has 800+ hits in major OSS detection libs (Vercel Next.js, Bun, Google
@@ -175,6 +184,15 @@ export const ADAPTER_REGISTRY: ReadonlyArray<AdapterRegistryEntry> = [
       { name: "VSCODE_PID", role: "identification" },
     ],
     load: async () => new (await import("./vscode-copilot/index.js")).VSCodeCopilotAdapter(),
+  },
+  // copilot-cli — GitHub Copilot CLI is user-home rooted under ~/.copilot.
+  // No host-set env marker is relied on; setup/doctor can use explicit
+  // CONTEXT_MODE_PLATFORM or the ~/.copilot config-dir tier.
+  {
+    id: "copilot-cli",
+    sessionDirSegments: [".copilot"],
+    envVars: [],
+    load: async () => new (await import("./copilot-cli/index.js")).CopilotCliAdapter(),
   },
   // jetbrains-copilot — IDEA_INITIAL_DIRECTORY set by JetBrains launcher.
   // (IDEA_HOME and JETBRAINS_CLIENT_ID removed — no source-line evidence.)

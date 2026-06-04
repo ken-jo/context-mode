@@ -21,7 +21,7 @@
  *   - JetBrains Copilot: IDEA_INITIAL_DIRECTORY | ~/.config/JetBrains/
  *
  * NOTE: this header is a human summary; `ADAPTER_REGISTRY` in registry.ts is
- * the single source of truth for the full 15-platform env-var set (incl.
+ * the single source of truth for the registry-backed env-var set (incl.
  * antigravity, zed, qwen-code, pi, omp, kiro). OPENCLAW_HOME/OPENCLAW_CLI and
  * IDEA_HOME/JETBRAINS_CLIENT_ID were removed from the registry (no upstream
  * source evidence) — do not re-add them here without a source line.
@@ -164,7 +164,7 @@ export function foreignWorkspaceEnv(platform: PlatformId): Set<string> {
  * vars (PI_CONFIG_DIR / PI_SESSION_FILE / PI_COMPILED) so the child still
  * detects pi correctly.
  *
- * Algorithmic, registry-driven — adding adapter #16 grows the scrub
+ * Algorithmic, registry-driven — adding a new adapter grows the scrub
  * automatically (no edit to mcp-bridge.ts).
  */
 export function foreignIdentificationEnv(platform: PlatformId): Set<string> {
@@ -275,6 +275,20 @@ export function detectPlatform(clientInfo?: { name: string; version?: string }):
     };
   }
 
+  // Antigravity CLI (`agy`) shares the broader ~/.gemini tree with Gemini CLI,
+  // so probe CLI-specific markers BEFORE the generic ~/.gemini fallback.
+  if (
+    existsSync(resolve(home, ".local", "bin", "agy")) ||
+    existsSync(resolve(home, ".gemini", "antigravity-cli")) ||
+    existsSync(resolve(home, ".gemini", "config", "mcp_config.json"))
+  ) {
+    return {
+      platform: "antigravity-cli",
+      confidence: "medium",
+      reason: "Antigravity CLI marker exists (~/.local/bin/agy or ~/.gemini/antigravity-cli)",
+    };
+  }
+
   if (existsSync(resolve(home, ".gemini"))) {
     return {
       platform: "gemini-cli",
@@ -346,6 +360,14 @@ export function detectPlatform(clientInfo?: { name: string; version?: string }):
       platform: "openclaw",
       confidence: "medium",
       reason: "~/.openclaw/ directory exists",
+    };
+  }
+
+  if (existsSync(resolve(home, ".copilot"))) {
+    return {
+      platform: "copilot-cli",
+      confidence: "medium",
+      reason: "~/.copilot/ directory exists",
     };
   }
 

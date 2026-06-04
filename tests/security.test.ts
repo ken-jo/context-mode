@@ -764,6 +764,8 @@ describe("cross-adapter deny-policy parity (#451 round-3)", () => {
     ["codex",             [".codex"]],
     ["qwen-code",         [".qwen"]],
     ["gemini-cli",        [".gemini"]],
+    ["antigravity-cli",   [".gemini"]],
+    ["copilot-cli",       [".copilot"]],
     ["jetbrains-copilot", [".config", "JetBrains"]],
     ["vscode-copilot",    [".vscode"]],
   ];

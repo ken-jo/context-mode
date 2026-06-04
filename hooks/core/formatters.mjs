@@ -105,6 +105,22 @@ export const formatters = {
     }),
   },
 
+  "copilot-cli": {
+    deny: (reason) => ({
+      permissionDecision: "deny",
+      permissionDecisionReason: reason,
+    }),
+    ask: () => ({
+      permissionDecision: "ask",
+    }),
+    modify: (updatedInput) => ({
+      modifiedArgs: updatedInput,
+    }),
+    context: (additionalContext) => ({
+      additionalContext,
+    }),
+  },
+
   "jetbrains-copilot": {
     deny: (reason) => ({
       permissionDecision: "deny",

@@ -4,14 +4,14 @@ This document provides a comprehensive comparison of all platforms supported by 
 
 ## Overview
 
-context-mode supports sixteen platforms across three hook paradigms:
+context-mode supports eighteen platforms across four integration paradigms:
 
 | Paradigm | Platforms |
 |----------|-----------|
-| **JSON stdin/stdout** | Claude Code, Gemini CLI, VS Code Copilot, JetBrains Copilot, Cursor, Codex CLI, Qwen Code, Kimi Code |
+| **JSON stdin/stdout** | Claude Code, Gemini CLI, VS Code Copilot, GitHub Copilot CLI, JetBrains Copilot, Cursor, Codex CLI, Qwen Code, Kimi Code |
 | **TS Plugin** | OpenCode, KiloCode, OpenClaw |
 | **Agent extension/plugin** | Pi, OMP (Oh My Pi) |
-| **MCP-only** | Antigravity, Kiro, Zed |
+| **MCP-only** | Antigravity, Antigravity CLI (`agy`), Kiro, Zed |
 
 The MCP server layer is 100% portable and needs no adapter. Only the hook layer requires platform-specific adapters.
 
@@ -33,27 +33,27 @@ This puts the `context-mode` binary in PATH, which is required for:
 
 ## Main Comparison Table
 
-| Feature | Claude Code | Gemini CLI | VS Code Copilot | JetBrains Copilot | Cursor | OpenCode | Codex CLI | Kimi Code | Antigravity | Kiro | OMP |
-|---------|-------------|------------|-----------------|-------------------|--------|----------|-----------|-----------|-------------|------|-----|
-| **Paradigm** | json-stdio | json-stdio | json-stdio | json-stdio | json-stdio | ts-plugin | json-stdio | json-stdio | mcp-only | mcp-only | mcp-only |
-| **PreToolUse equivalent** | `PreToolUse` | `BeforeTool` | `PreToolUse` | `PreToolUse` | `preToolUse` | `tool.execute.before` | `PreToolUse` | `PreToolUse` | -- | -- | -- |
-| **PostToolUse equivalent** | `PostToolUse` | `AfterTool` | `PostToolUse` | `PostToolUse` | `postToolUse` | `tool.execute.after` | `PostToolUse` | `PostToolUse` | -- | -- | -- |
-| **PreCompact equivalent** | `PreCompact` | `PreCompress` | `PreCompact` | `PreCompact` | -- | `experimental.session.compacting` | -- | `PreCompact` | -- | -- | -- |
-| **SessionStart** | `SessionStart` | `SessionStart` | `SessionStart` | `SessionStart` | -- (buggy in Cursor) | -- | `SessionStart` | `SessionStart` | -- | -- | -- |
-| **Stop equivalent** | -- | -- | `Stop` | `Stop` | `stop` | -- | `Stop` | `Stop` | -- | -- | -- |
-| **Can modify args** | Yes | Yes | Yes | Yes | Yes | Yes | No | Yes | -- | -- | -- |
-| **Can modify output** | Yes | Yes | Yes | Yes | No | Yes (caveat) | No | Yes | -- | -- | -- |
-| **Can inject session context** | Yes | Yes | Yes | Yes | Yes | -- | Yes | Yes | -- | -- | -- |
-| **Can block tools** | Yes | Yes | Yes | Yes | Yes | Yes (throw) | Yes | Yes | -- | -- | -- |
-| **Config location** | `~/.claude/settings.json` | `~/.gemini/settings.json` | `.github/hooks/*.json` | `.github/hooks/*.json` | `.cursor/hooks.json` or `~/.cursor/hooks.json` | `opencode.json` | `~/.codex/hooks.json` + `~/.codex/config.toml` | `~/.kimi-code/config.toml` | `~/.gemini/antigravity/mcp_config.json` | `~/.kiro/settings/mcp.json` | `~/.omp/agent/mcp_config.json` |
-| **Session ID field** | `session_id` | `session_id` | `sessionId` (camelCase) | `sessionId` (camelCase) | `conversation_id` | `sessionID` (camelCase) | N/A | `session_id` | N/A | N/A | N/A |
-| **Project dir env** | `CLAUDE_PROJECT_DIR` | `GEMINI_PROJECT_DIR` | `CLAUDE_PROJECT_DIR` | `CLAUDE_PROJECT_DIR` | stdin `workspace_roots` | `ctx.directory` (plugin init) | N/A | stdin `cwd` | N/A | N/A | `OMP_PROCESSING_AGENT_DIR` |
-| **MCP/tool naming** | `mcp__server__tool` | `mcp__server__tool` | `f1e_` prefix | `f1e_` prefix | `MCP:<tool>` in hook payloads | native `ctx_*` plugin tools | `mcp__server__tool` | `mcp__context-mode__tool` | `mcp__server__tool` | `mcp__server__tool` | `mcp__server__tool` |
-| **Hook command format** | `context-mode hook claude-code <event>` | `context-mode hook gemini-cli <event>` | `context-mode hook vscode-copilot <event>` | `context-mode hook jetbrains-copilot <event>` | `context-mode hook cursor <event>` | TS plugin (no command) | `context-mode hook codex <event>` | `context-mode hook kimi <event>` | N/A | N/A |
-| **Hook registration** | settings.json hooks object | settings.json hooks object | `.github/hooks/*.json` | `.github/hooks/*.json` | `hooks.json` native hook arrays | opencode.json plugin array | `~/.codex/hooks.json` | `config.toml` hooks array | N/A | N/A |
-| **MCP server command** | `context-mode` (or plugin auto) | `context-mode` | `context-mode` | `context-mode` | `context-mode` | N/A (native plugin tools) | `context-mode` | `context-mode` | `context-mode` | `context-mode` |
-| **Plugin distribution** | Claude plugin registry | npm global | npm global | npm global | npm global | npm global | npm global | npm global | npm global | npm global |
-| **Session dir** | `~/.claude/context-mode/sessions/` | `~/.gemini/context-mode/sessions/` | `.github/context-mode/sessions/` or `~/.vscode/context-mode/sessions/` | `.github/context-mode/sessions/` | `~/.cursor/context-mode/sessions/` | `~/.config/opencode/context-mode/sessions/` | `~/.codex/context-mode/sessions/` | `~/.kimi-code/context-mode/sessions/` | `~/.gemini/context-mode/sessions/` | `~/.kiro/context-mode/sessions/` |
+| Feature | Claude Code | Gemini CLI | VS Code Copilot | GitHub Copilot CLI | JetBrains Copilot | Cursor | OpenCode | Codex CLI | Kimi Code | Antigravity | Antigravity CLI | Kiro | OMP |
+|---------|-------------|------------|-----------------|--------------------|-------------------|--------|----------|-----------|-----------|-------------|------------------|------|-----|
+| **Paradigm** | json-stdio | json-stdio | json-stdio | json-stdio | json-stdio | json-stdio | ts-plugin | json-stdio | json-stdio | mcp-only | mcp-only | mcp-only | mcp-only |
+| **PreToolUse equivalent** | `PreToolUse` | `BeforeTool` | `PreToolUse` | `PreToolUse` | `PreToolUse` | `preToolUse` | `tool.execute.before` | `PreToolUse` | `PreToolUse` | -- | -- | -- | -- |
+| **PostToolUse equivalent** | `PostToolUse` | `AfterTool` | `PostToolUse` | `PostToolUse` | `PostToolUse` | `postToolUse` | `tool.execute.after` | `PostToolUse` | `PostToolUse` | -- | -- | -- | -- |
+| **PreCompact equivalent** | `PreCompact` | `PreCompress` | `PreCompact` | `PreCompact` | `PreCompact` | -- | `experimental.session.compacting` | -- | `PreCompact` | -- | -- | -- | -- |
+| **SessionStart** | `SessionStart` | `SessionStart` | `SessionStart` | `SessionStart` | `SessionStart` | -- (buggy in Cursor) | -- | `SessionStart` | `SessionStart` | -- | -- | -- | -- |
+| **Stop equivalent** | -- | -- | `Stop` | -- | `Stop` | `stop` | -- | `Stop` | `Stop` | -- | -- | -- | -- |
+| **Can modify args** | Yes | Yes | Yes | Yes | Yes | Yes | Yes | No | Yes | -- | -- | -- | -- |
+| **Can modify output** | Yes | Yes | Yes | Yes | Yes | No | Yes (caveat) | No | Yes | -- | -- | -- | -- |
+| **Can inject session context** | Yes | Yes | Yes | Yes | Yes | Yes | -- | Yes | Yes | -- | -- | -- | -- |
+| **Can block tools** | Yes | Yes | Yes | Yes | Yes | Yes | Yes (throw) | Yes | Yes | -- | -- | -- | -- |
+| **Config location** | `~/.claude/settings.json` | `~/.gemini/settings.json` | `.github/hooks/*.json` | `~/.copilot/hooks/context-mode.json` + `~/.copilot/mcp-config.json` | `.github/hooks/*.json` | `.cursor/hooks.json` or `~/.cursor/hooks.json` | `opencode.json` | `~/.codex/hooks.json` + `~/.codex/config.toml` | `~/.kimi-code/config.toml` | `~/.gemini/antigravity/mcp_config.json` | `~/.gemini/config/mcp_config.json` | `~/.kiro/settings/mcp.json` | `~/.omp/agent/mcp_config.json` |
+| **Session ID field** | `session_id` | `session_id` | `sessionId` (camelCase) | `conversation_id` / `sessionId` | `sessionId` (camelCase) | `conversation_id` | `sessionID` (camelCase) | N/A | `session_id` | N/A | N/A | N/A | N/A |
+| **Project dir env** | `CLAUDE_PROJECT_DIR` | `GEMINI_PROJECT_DIR` | `CLAUDE_PROJECT_DIR` | stdin `cwd` | `CLAUDE_PROJECT_DIR` | stdin `workspace_roots` | `ctx.directory` (plugin init) | N/A | stdin `cwd` | N/A | N/A | N/A | `OMP_PROCESSING_AGENT_DIR` |
+| **MCP/tool naming** | `mcp__server__tool` | `mcp__server__tool` | `f1e_` prefix | `context-mode_<tool>` | `f1e_` prefix | `MCP:<tool>` in hook payloads | native `ctx_*` plugin tools | `mcp__server__tool` | `mcp__context-mode__tool` | `mcp__server__tool` | `mcp__context-mode__tool` | `mcp__server__tool` | `mcp__server__tool` |
+| **Hook command format** | `context-mode hook claude-code <event>` | `context-mode hook gemini-cli <event>` | `context-mode hook vscode-copilot <event>` | `context-mode hook copilot-cli <event>` | `context-mode hook jetbrains-copilot <event>` | `context-mode hook cursor <event>` | TS plugin (no command) | `context-mode hook codex <event>` | `context-mode hook kimi <event>` | N/A | N/A | N/A | N/A |
+| **Hook registration** | settings.json hooks object | settings.json hooks object | `.github/hooks/*.json` | `~/.copilot/hooks/context-mode.json` | `.github/hooks/*.json` | `hooks.json` native hook arrays | opencode.json plugin array | `~/.codex/hooks.json` | `config.toml` hooks array | N/A | N/A | N/A | N/A |
+| **MCP server command** | `context-mode` (or plugin auto) | `context-mode` | `context-mode` | `context-mode` | `context-mode` | `context-mode` | N/A (native plugin tools) | `context-mode` | `context-mode` | `context-mode` | `context-mode` | `context-mode` | `context-mode` |
+| **Plugin distribution** | Claude plugin registry | npm global | npm global | npm global | npm global | npm global | npm global | npm global | npm global | npm global | npm global | npm global | npm global |
+| **Session dir** | `~/.claude/context-mode/sessions/` | `~/.gemini/context-mode/sessions/` | `.github/context-mode/sessions/` or `~/.vscode/context-mode/sessions/` | `~/.copilot/context-mode/sessions/` | `.github/context-mode/sessions/` | `~/.cursor/context-mode/sessions/` | `~/.config/opencode/context-mode/sessions/` | `~/.codex/context-mode/sessions/` | `~/.kimi-code/context-mode/sessions/` | `~/.gemini/context-mode/sessions/` | `~/.gemini/context-mode/sessions/` | `~/.kiro/context-mode/sessions/` | `~/.omp/context-mode/sessions/` |
 
 ### Legend
 
@@ -386,6 +386,49 @@ Google Antigravity is an AI-powered IDE by Google/DeepMind. It shares the `~/.ge
 
 ---
 
+### Antigravity CLI (`agy`)
+
+**Status:** MCP-only (no hooks)
+
+**Hook Paradigm:** MCP-only
+
+The standalone Antigravity CLI (`agy`) reads MCP configuration from the Gemini-family config tree, but its verified CLI path differs from the Antigravity IDE path. It has no public hook API, so context-mode registers MCP and relies on best-effort routing instructions.
+
+**Configuration:**
+- Global MCP config: `~/.gemini/config/mcp_config.json`
+- Project-local MCP config: `.agents/mcp_config.json`
+- MCP servers configured in an `mcpServers` object
+
+**Detection:**
+- Auto-detected via MCP protocol handshake (`clientInfo.name: "antigravity-client"`)
+- Fallback config-dir detection checks for `agy`, `~/.gemini/antigravity-cli`, or `~/.gemini/config/mcp_config.json`
+- Explicit setup target: `context-mode setup antigravity-cli`
+
+**Routing Instructions:**
+- No hooks, no automatic interception
+- Uses the Gemini-family MCP tool naming convention (`mcp__context-mode__ctx_execute`)
+
+**Capabilities:**
+- PreToolUse: --
+- PostToolUse: --
+- PreCompact: --
+- SessionStart: --
+- Can modify args: --
+- Can modify output: --
+- Can inject session context: --
+
+**Known Issues / Caveats:**
+- No hook support -- enforcement is model-followed only (~60% compliance)
+- Shares `~/.gemini/context-mode/` session storage with Gemini-family platforms; project hashing prevents cross-project collision
+- Code-level validation is limited to the installed binary behavior and MCP traffic unless Google publishes source under an open-source license
+
+**Verification:** `context-mode setup antigravity-cli` was validated in an isolated home, then `agy -p ... --dangerously-skip-permissions` was run with project-local `.agents/mcp_config.json`. A wrapper around the `context-mode` command captured MCP `initialize`, `tools/list`, and `tools/call` traffic for `ctx_execute`.
+
+**Sources:**
+- MCP support: [Antigravity MCP docs](https://antigravity.google/docs/mcp)
+
+---
+
 ### Kiro
 
 **Status:** MCP-only (hooks planned for Phase 2)
@@ -489,6 +532,50 @@ context-mode hook vscode-copilot sessionstart
 - Matchers are parsed but IGNORED (all hooks fire on all tools)
 - Tool input property names use camelCase (`filePath` not `file_path`)
 - Response must be wrapped in `hookSpecificOutput` with `hookEventName`
+
+---
+
+### GitHub Copilot CLI
+
+**Status:** Supported
+
+**Hook Paradigm:** JSON stdin/stdout
+
+GitHub Copilot CLI uses the same PascalCase hook names as Copilot IDE integrations, but its response schema differs: hook-specific output fields are top-level, not wrapped in `hookSpecificOutput`. MCP is configured in the user Copilot home rather than a project `.vscode` or `.github` file.
+
+**Hook Names:**
+- `PreToolUse` -- fires before a tool is executed
+- `PostToolUse` -- fires after a tool completes
+- `PreCompact` -- fires before context compaction
+- `SessionStart` -- fires when a session starts
+
+**Blocking:** `permissionDecision: "deny"` with `permissionDecisionReason`
+
+**Arg Modification:** `modifiedArgs` at the top level
+
+**Output Modification:** `modifiedResult` at the top level, or `additionalContext` for appending context
+
+**MCP Tool Naming:** Uses `context-mode_<tool>` in routing instructions; Copilot CLI may display MCP tool calls as server-prefixed names such as `context-mode-ctx_execute`.
+
+**Session ID:** Extracted from transcript UUID, `conversation_id`, `sessionId`, `session_id`, or parent process fallback
+
+**Configuration:**
+- Hooks: `~/.copilot/hooks/context-mode.json`
+- MCP config: `~/.copilot/mcp-config.json`
+- `COPILOT_HOME` overrides the `~/.copilot` root for isolated installs
+
+**Hook Commands:**
+```
+context-mode hook copilot-cli pretooluse
+context-mode hook copilot-cli posttooluse
+context-mode hook copilot-cli precompact
+context-mode hook copilot-cli sessionstart
+```
+
+**Verification:** `context-mode setup copilot-cli` was validated in an isolated `COPILOT_HOME` with the installed package tarball, then exercised through a real `copilot -p ... --additional-mcp-config @<path>` run that invoked `ctx_execute`.
+
+**Sources:**
+- Hook schema and response fields: [GitHub Copilot CLI hooks reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-hooks-reference)
 
 ---
 
@@ -732,18 +819,18 @@ The hook adapter exists only to satisfy the interface contract — every parser 
 
 ## Capability Matrix (Quick Reference)
 
-| Capability | Claude Code | Gemini CLI | VS Code Copilot | JetBrains Copilot | Cursor | OpenCode | Codex CLI | Kimi Code | Antigravity | Kiro | OMP |
-|-----------|:-----------:|:----------:|:---------------:|:-----------------:|:------:|:--------:|:---------:|:---------:|:-----------:|:----:|:---:|
-| PreToolUse | Yes | Yes | Yes | Yes | Yes | Yes | Yes*** | Yes | -- | -- | -- |
-| PostToolUse | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | -- | -- | -- |
-| PreCompact | Yes | Yes | Yes | Yes | -- | Yes* | Yes**** | Yes | -- | -- | -- |
-| SessionStart | Yes | Yes | Yes | Yes | Yes | -- | Yes | Yes | -- | -- | -- |
-| Stop | -- | -- | Yes | Yes | Yes | -- | Yes | Yes | -- | -- | -- |
-| Modify Args | Yes | Yes | Yes | Yes | Yes | Yes | -- | Yes | -- | -- | -- |
-| Modify Output | Yes | Yes | Yes | Yes | No | Yes** | -- | Yes | -- | -- | -- |
-| Inject Context | Yes | Yes | Yes | Yes | Yes | -- | Yes | Yes | -- | -- | -- |
-| Block Tools | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | -- | -- | -- |
-| MCP/native tool support | Yes | Yes | Yes | Yes | Yes | Native plugin | Yes | Yes | Yes | Yes | Yes |
+| Capability | Claude Code | Gemini CLI | VS Code Copilot | GitHub Copilot CLI | JetBrains Copilot | Cursor | OpenCode | Codex CLI | Kimi Code | Antigravity | Antigravity CLI | Kiro | OMP |
+|-----------|:-----------:|:----------:|:---------------:|:------------------:|:-----------------:|:------:|:--------:|:---------:|:---------:|:-----------:|:----------------:|:----:|:---:|
+| PreToolUse | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes*** | Yes | -- | -- | -- | -- |
+| PostToolUse | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | -- | -- | -- | -- |
+| PreCompact | Yes | Yes | Yes | Yes | Yes | -- | Yes* | Yes**** | Yes | -- | -- | -- | -- |
+| SessionStart | Yes | Yes | Yes | Yes | Yes | Yes | -- | Yes | Yes | -- | -- | -- | -- |
+| Stop | -- | -- | Yes | -- | Yes | Yes | -- | Yes | Yes | -- | -- | -- | -- |
+| Modify Args | Yes | Yes | Yes | Yes | Yes | Yes | Yes | -- | Yes | -- | -- | -- | -- |
+| Modify Output | Yes | Yes | Yes | Yes | Yes | No | Yes** | -- | Yes | -- | -- | -- | -- |
+| Inject Context | Yes | Yes | Yes | Yes | Yes | Yes | -- | Yes | Yes | -- | -- | -- | -- |
+| Block Tools | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | -- | -- | -- | -- |
+| MCP/native tool support | Yes | Yes | Yes | Yes | Yes | Yes | Native plugin | Yes | Yes | Yes | Yes | Yes | Yes |
 
 \* OpenCode `experimental.session.compacting` is experimental
 \*\* OpenCode has a TUI rendering bug for bash tool output (#13575)
@@ -761,6 +848,7 @@ The hook adapter exists only to satisfy the interface contract — every parser 
 | Claude Code | `{ "permissionDecision": "deny", "reason": "..." }` |
 | Gemini CLI | `{ "decision": "deny", "reason": "..." }` |
 | VS Code Copilot | `{ "permissionDecision": "deny", "reason": "..." }` |
+| GitHub Copilot CLI | `{ "permissionDecision": "deny", "permissionDecisionReason": "..." }` |
 | JetBrains Copilot | `{ "permissionDecision": "deny", "reason": "..." }` |
 | Cursor | `{ "permission": "deny", "user_message": "..." }` |
 | OpenCode | `throw new Error("...")` |
@@ -774,6 +862,7 @@ The hook adapter exists only to satisfy the interface contract — every parser 
 | Claude Code | `{ "updatedInput": { ... } }` |
 | Gemini CLI | `{ "hookSpecificOutput": { "tool_input": { ... } } }` |
 | VS Code Copilot | `{ "hookSpecificOutput": { "hookEventName": "PreToolUse", "updatedInput": { ... } } }` |
+| GitHub Copilot CLI | `{ "modifiedArgs": { ... } }` |
 | JetBrains Copilot | `{ "hookSpecificOutput": { "hookEventName": "PreToolUse", "updatedInput": { ... } } }` |
 | Cursor | `{ "updated_input": { ... } }` |
 | OpenCode | `{ "args": { ... } }` (mutation) |
@@ -787,6 +876,7 @@ The hook adapter exists only to satisfy the interface contract — every parser 
 | Claude Code | `{ "additionalContext": "..." }` |
 | Gemini CLI | `{ "hookSpecificOutput": { "additionalContext": "..." } }` |
 | VS Code Copilot | `{ "hookSpecificOutput": { "hookEventName": "PostToolUse", "additionalContext": "..." } }` |
+| GitHub Copilot CLI | `{ "additionalContext": "..." }` or `{ "modifiedResult": { "resultType": "success", "textResultForLlm": "..." } }` |
 | JetBrains Copilot | `{ "hookSpecificOutput": { "hookEventName": "PostToolUse", "additionalContext": "..." } }` |
 | Cursor | `{ "additional_context": "..." }` |
 | OpenCode | `{ "additionalContext": "..." }` |
@@ -818,12 +908,13 @@ The dispatcher resolves the hook script relative to the installed package and dy
 | `claude-code` | `pretooluse`, `posttooluse`, `precompact`, `sessionstart`, `userpromptsubmit` |
 | `gemini-cli` | `beforetool`, `aftertool`, `precompress`, `sessionstart` |
 | `vscode-copilot` | `pretooluse`, `posttooluse`, `precompact`, `sessionstart` |
+| `copilot-cli` | `pretooluse`, `posttooluse`, `precompact`, `sessionstart` |
 | `jetbrains-copilot` | `pretooluse`, `posttooluse`, `precompact`, `sessionstart` |
 | `cursor` | `pretooluse`, `posttooluse`, `stop` |
 | `codex` | `pretooluse`, `posttooluse`, `precompact`, `sessionstart`, `userpromptsubmit`, `stop` |
 | `kimi` | `pretooluse`, `posttooluse`, `precompact`, `sessionstart`, `userpromptsubmit`, `stop` |
 
-OpenCode uses a TS plugin paradigm (no command dispatcher). Antigravity and Kiro have no hook support.
+OpenCode uses a TS plugin paradigm (no command dispatcher). Antigravity, Antigravity CLI, and Kiro have no hook support.
 
 ---
 

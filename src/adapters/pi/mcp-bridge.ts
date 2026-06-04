@@ -433,7 +433,7 @@ export class MCPStdioClient {
     // spawned MCP server resolves getProjectDir() to the foreign workspace
     // and Pi's sessions write into the wrong project. The ban list is
     // derived ALGORITHMICALLY from PLATFORM_ENV_VARS (every other adapter's
-    // workspace-role vars), so adding adapter #16 grows the scrub
+    // workspace-role vars), so adding a new adapter grows the scrub
     // automatically — no edit to this file. Pi's own workspace vars and
     // the universal escape hatch (CONTEXT_MODE_PROJECT_DIR) are NEVER
     // scrubbed.

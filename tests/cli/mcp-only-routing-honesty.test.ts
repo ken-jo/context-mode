@@ -1,6 +1,6 @@
 /**
  * Item E2 of docs/setup-improvements.md — surface routing-fidelity honesty
- * for MCP-only paradigm hosts (antigravity, zed).
+ * for MCP-only paradigm hosts (antigravity, antigravity-cli, zed).
  *
  * Antigravity + Zed have NO hook surface. Routing relies on a rules file
  * (AGENTS.md / GEMINI.md), which the model follows ~60% of the time per
@@ -42,11 +42,12 @@ describe("MCP-only routing honesty (Item E2)", () => {
     expect(setupSrc).toMatch(/MCP_ONLY_PARADIGM/);
     expect(setupSrc).toMatch(/best-effort/i);
     expect(setupSrc).toMatch(/60%/);
-    // Both antigravity and zed must be members.
+    // Antigravity, Antigravity CLI, and Zed must be members.
     const setMatch = setupSrc.match(/MCP_ONLY_PARADIGM[^=]*=\s*new\s+Set\(\[([^\]]+)\]\)/);
     expect(setMatch).not.toBeNull();
     const members = setMatch?.[1] ?? "";
     expect(members).toMatch(/"antigravity"|'antigravity'/);
+    expect(members).toMatch(/"antigravity-cli"|'antigravity-cli'/);
     expect(members).toMatch(/"zed"|'zed'/);
   });
 });

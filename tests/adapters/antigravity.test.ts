@@ -4,6 +4,7 @@ import { rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { AntigravityAdapter } from "../../src/adapters/antigravity/index.js";
+import { AntigravityCliAdapter } from "../../src/adapters/antigravity-cli/index.js";
 import { hashProjectDirCanonical, resolveSessionDbPath } from "../../src/session/db.js";
 
 describe("AntigravityAdapter", () => {
@@ -157,6 +158,41 @@ describe("AntigravityAdapter", () => {
         status: "fail",
         fix: "context-mode setup antigravity",
       });
+    });
+  });
+});
+
+describe("AntigravityCliAdapter", () => {
+  let adapter: AntigravityCliAdapter;
+
+  beforeEach(() => {
+    adapter = new AntigravityCliAdapter();
+  });
+
+  it("name is Antigravity CLI and paradigm is mcp-only", () => {
+    expect(adapter.name).toBe("Antigravity CLI");
+    expect(adapter.paradigm).toBe("mcp-only");
+  });
+
+  it("settings path is ~/.gemini/config/mcp_config.json", () => {
+    expect(adapter.getSettingsPath()).toBe(
+      resolve(homedir(), ".gemini", "config", "mcp_config.json"),
+    );
+  });
+
+  it("config dir is ~/.gemini/antigravity-cli", () => {
+    expect(adapter.getConfigDir()).toBe(
+      resolve(homedir(), ".gemini", "antigravity-cli"),
+    );
+  });
+
+  it("fails with setup remediation when mcp_config.json is missing", () => {
+    rmSync(adapter.getSettingsPath(), { force: true });
+
+    expect(adapter.checkPluginRegistration()).toMatchObject({
+      check: "MCP registration",
+      status: "fail",
+      fix: "context-mode setup antigravity-cli",
     });
   });
 });

@@ -58,6 +58,8 @@ describe("server getProjectDir wiring — strictPlatform for all adapters (issue
     "kiro",
     "zed",
     "antigravity",
+    "antigravity-cli",
+    "copilot-cli",
     "openclaw",
   ];
 
@@ -110,6 +112,7 @@ describe("server getProjectDir wiring — strictPlatform for all adapters (issue
         cwd: "/anchor/cwd",
         pwd: "/Users/x/from-shell",
         strictPlatform: platform,
+        codexHome: join(tmpdir(), "ctx-project-dir-strict-no-codex-home"),
       });
       // No own workspace var matches (we set leaks, not the platform's own
       // value). PWD is the next tier. PI / OMP have own vars set in the

@@ -1097,6 +1097,7 @@ describe("empty stdin resilience (#322)", () => {
     "sessionstart.mjs", "precompact.mjs", "posttooluse.mjs", "userpromptsubmit.mjs",
     "gemini-cli/sessionstart.mjs", "gemini-cli/beforetool.mjs", "gemini-cli/aftertool.mjs", "gemini-cli/precompress.mjs",
     "vscode-copilot/sessionstart.mjs", "vscode-copilot/pretooluse.mjs", "vscode-copilot/posttooluse.mjs", "vscode-copilot/precompact.mjs",
+    "copilot-cli/sessionstart.mjs", "copilot-cli/pretooluse.mjs", "copilot-cli/posttooluse.mjs", "copilot-cli/precompact.mjs",
     "cursor/sessionstart.mjs", "cursor/pretooluse.mjs", "cursor/posttooluse.mjs", "cursor/stop.mjs",
     "codex/sessionstart.mjs", "codex/pretooluse.mjs", "codex/posttooluse.mjs",
     "kiro/pretooluse.mjs", "kiro/posttooluse.mjs",

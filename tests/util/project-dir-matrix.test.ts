@@ -11,7 +11,7 @@
  *      for every host (universal escape hatch invariant).
  *
  * Generates 15 × 14 × 3 = 630 assertions from one parameterized test. Adding
- * adapter #16 to PLATFORM_ENV_VARS grows the matrix automatically — no edit
+ * adding an adapter to PLATFORM_ENV_VARS grows the matrix automatically — no edit
  * to this file. This is the structural test for MUST-3 (15 adapters equal).
  */
 
@@ -34,12 +34,14 @@ const ALL_PLATFORMS: ReadonlyArray<PlatformId> = [
   "gemini-cli",
   "cursor",
   "vscode-copilot",
+  "copilot-cli",
   "jetbrains-copilot",
   "opencode",
   "kilo",
   "qwen-code",
   "codex",
   "antigravity",
+  "antigravity-cli",
   "kiro",
   "openclaw",
   "zed",
@@ -124,7 +126,7 @@ describe("resolveProjectDir matrix — MUST-3 invariant (issue #545)", () => {
         assertions++;
       }
     }
-    // Sanity: with N=15 platforms, we expect 15 * 14 * 3 = 630 assertions.
+    // Sanity: every registered platform pair should be covered.
     // Looser bound here to avoid the test itself becoming brittle if a
     // future adapter is added — just assert "many" and the per-iteration
     // expects above carry the real signal.
@@ -137,7 +139,7 @@ describe("resolveProjectDir matrix — MUST-3 invariant (issue #545)", () => {
 // of registered platforms with host ≠ foreign, foreignIdentificationEnv(host)
 // must ban every foreign identification var AND must NOT ban any of host's
 // own identification vars. Algorithmically derived from PLATFORM_ENV_VARS so
-// adapter #16 inherits the guarantee for free.
+// New adapters inherit the guarantee for free.
 describe("foreignIdentificationEnv matrix — #561 invariant", () => {
   it("matrix: host bans every foreign identification var, preserves its own", () => {
     let assertions = 0;

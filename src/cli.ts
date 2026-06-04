@@ -95,6 +95,12 @@ const HOOK_MAP: Record<string, Record<string, string>> = {
     precompact: "hooks/vscode-copilot/precompact.mjs",
     sessionstart: "hooks/vscode-copilot/sessionstart.mjs",
   },
+  "copilot-cli": {
+    pretooluse: "hooks/copilot-cli/pretooluse.mjs",
+    posttooluse: "hooks/copilot-cli/posttooluse.mjs",
+    precompact: "hooks/copilot-cli/precompact.mjs",
+    sessionstart: "hooks/copilot-cli/sessionstart.mjs",
+  },
   "cursor": {
     pretooluse: "hooks/cursor/pretooluse.mjs",
     posttooluse: "hooks/cursor/posttooluse.mjs",
@@ -680,7 +686,7 @@ async function doctor(): Promise<number> {
   // and rely on a rules file (AGENTS.md / GEMINI.md) for routing nudges,
   // which the model follows ~60% of the time per upstream measurements.
   // Surface this explicitly so users don't expect hook-grade enforcement.
-  const bestEffortRoutingPlatforms = new Set(["antigravity", "zed"]);
+  const bestEffortRoutingPlatforms = new Set(["antigravity", "antigravity-cli", "zed"]);
   if (bestEffortRoutingPlatforms.has(detection.platform)) {
     p.log.warn(
       color.yellow("Routing fidelity: best-effort (~60%)") +

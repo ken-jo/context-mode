@@ -5,7 +5,7 @@
  * Three adapter I/O paradigms exist across supported platforms:
  *   A) JSON stdin/stdout — Claude Code, Gemini CLI, VS Code Copilot, Copilot CLI, Cursor
  *   B) TS Plugin Functions — OpenCode, KiloCode, OpenClaw, Pi/OMP extension wrappers
- *   C) MCP-only (no hooks) — Antigravity, Zed
+ *   C) MCP-only (no hooks) — Antigravity, Antigravity CLI, Zed
  *
  * The MCP server layer is 100% portable and needs no adapter.
  * Only the hook layer requires platform-specific adapters.
@@ -490,9 +490,11 @@ export type PlatformId =
   | "openclaw"
   | "codex"
   | "vscode-copilot"
+  | "copilot-cli"
   | "jetbrains-copilot"
   | "cursor"
   | "antigravity"
+  | "antigravity-cli"
   | "kiro"
   | "pi"
   | "omp"

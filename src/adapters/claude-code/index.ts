@@ -130,7 +130,7 @@ export class ClaudeCodeAdapter extends ClaudeCodeBaseAdapter implements HookAdap
     // five events; bare `node` made claude-code the lone outlier and
     // dropping the execPath swap re-opened the Windows class. Algo-D3.5
     // (CI invariant in tests/adapters/claude-code.test.ts) locks this in
-    // for adapter #16.
+    // for future adapters.
     const preToolUseCommand = buildHookRuntimeCommand(`${pluginRoot}/hooks/pretooluse.mjs`);
     const preToolUseMatchers = [...PRE_TOOL_USE_MATCHERS];
 

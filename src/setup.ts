@@ -1,7 +1,7 @@
 /**
  * context-mode setup — auto-detect host CLI and apply canonical config.
  *
- * Goal: consolidate the 14× repeated "edit this JSON file" README steps behind a
+ * Goal: consolidate the repeated "edit this JSON file" README steps behind a
  * single command (the manual steps stay documented — see below):
  *
  *   $ context-mode setup            # auto-detect, write hooks + MCP registration
@@ -18,7 +18,8 @@
  *
  * Per-platform behavior (MVP — see docs/setup-improvements.md A1):
  *
- *   json-stdio platforms (gemini-cli, vscode-copilot, cursor, qwen-code, kiro):
+ *   json-stdio platforms (gemini-cli, vscode-copilot, copilot-cli, cursor,
+ *   qwen-code, kiro):
  *     1. Hooks  → adapter.configureAllHooks(pluginRoot)  (existing path)
  *     2. MCP    → idempotent merge into the platform's mcp/servers JSON
  *
@@ -41,6 +42,8 @@ import color from "picocolors";
 import { detectPlatform, getAdapter } from "./adapters/detect.js";
 import { REGISTERED_PLATFORM_IDS } from "./adapters/registry.js";
 import { antigravityMcpConfigPath } from "./adapters/antigravity/index.js";
+import { antigravityCliMcpConfigPath } from "./adapters/antigravity-cli/index.js";
+import { copilotCliHome, copilotCliMcpConfigPath } from "./adapters/copilot-cli/index.js";
 import { openclawConfigPath } from "./adapters/openclaw/index.js";
 import { zedSettingsPath } from "./adapters/zed/index.js";
 import type { PlatformId } from "./adapters/types.js";
@@ -269,6 +272,12 @@ const MCP_REGISTRATIONS: Partial<Record<PlatformId, McpRegHandler>> = {
         : resolve(projectDir, ".vscode", "mcp.json"),
     containerKey: "servers",
   },
+  "copilot-cli": {
+    label: "GitHub Copilot CLI mcp-config.json mcpServers",
+    resolvePath: () => copilotCliMcpConfigPath(),
+    containerKey: "mcpServers",
+    desired: { type: "local", command: "context-mode", args: [], tools: ["*"] },
+  },
   "cursor": {
     label: "Cursor mcp.json mcpServers",
     resolvePath: ({ scope, projectDir }) =>
@@ -303,6 +312,11 @@ const MCP_REGISTRATIONS: Partial<Record<PlatformId, McpRegHandler>> = {
     // mcp_config.json — shared with AntigravityAdapter.getSettingsPath so
     // setup writes where doctor + the Antigravity Editor read.
     resolvePath: () => antigravityMcpConfigPath(),
+    containerKey: "mcpServers",
+  },
+  "antigravity-cli": {
+    label: "Antigravity CLI mcp_config.json mcpServers",
+    resolvePath: () => antigravityCliMcpConfigPath(),
     containerKey: "mcpServers",
   },
   "zed": {
@@ -510,7 +524,7 @@ const POST_SETUP_NOTES: Partial<Record<PlatformId, string>> = {
 /* ─────────── Hook configuration via adapter.configureAllHooks ─────────── */
 
 const HOOK_CAPABLE: ReadonlySet<PlatformId> = new Set([
-  "claude-code", "gemini-cli", "vscode-copilot", "cursor", "qwen-code",
+  "claude-code", "gemini-cli", "vscode-copilot", "copilot-cli", "cursor", "qwen-code",
   "kiro", "codex", // codex has its own hooks.json path
   "jetbrains-copilot", "opencode", "kilo", "openclaw",
 ]);
@@ -523,7 +537,7 @@ const HOOK_CAPABLE: ReadonlySet<PlatformId> = new Set([
  * mistake "Setup complete" for hook-grade enforcement.
  */
 const MCP_ONLY_PARADIGM: ReadonlySet<PlatformId> = new Set([
-  "antigravity", "zed",
+  "antigravity", "antigravity-cli", "zed",
 ]);
 
 function piExtensionDir(): string {
@@ -779,6 +793,8 @@ function hookConfigPaths(platform: PlatformId, projectDir: string): string[] {
         resolve(homedir(), ".codex", "config.toml"),
         resolve(homedir(), ".codex", "hooks.json"),
       ];
+    case "copilot-cli":
+      return [resolve(copilotCliHome(), "hooks", "context-mode.json")];
     case "vscode-copilot":
     case "jetbrains-copilot":
       return [resolve(projectDir, ".github", "hooks", "context-mode.json")];
@@ -845,9 +861,9 @@ export async function runSetup(opts: SetupOptions): Promise<number> {
     p.log.warn(color.yellow(`Not a supported agent CLI: "${platform}".`));
     p.note(
       "Pass an explicit platform, e.g. `context-mode setup gemini-cli`.\n" +
-        "Supported: claude-code, gemini-cli, vscode-copilot, cursor, qwen-code,\n" +
-        "kiro, antigravity, zed, codex, jetbrains-copilot, opencode, kilo,\n" +
-        "openclaw, pi, omp.",
+        "Supported: claude-code, gemini-cli, vscode-copilot, copilot-cli,\n" +
+        "cursor, qwen-code, kiro, antigravity, antigravity-cli, zed,\n" +
+        "codex, jetbrains-copilot, opencode, kilo, openclaw, pi, omp.",
       "unsupported",
     );
     p.outro(color.yellow("No changes written — platform not detected."));

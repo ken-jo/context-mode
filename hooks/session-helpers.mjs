@@ -151,6 +151,14 @@ export const VSCODE_OPTS = {
   sessionIdEnv: undefined,
 };
 
+/** GitHub Copilot CLI platform options. */
+export const COPILOT_OPTS = {
+  configDir: ".copilot",
+  configDirEnv: "COPILOT_HOME",
+  projectDirEnv: undefined,
+  sessionIdEnv: undefined,
+};
+
 /** Cursor platform options. */
 export const CURSOR_OPTS = {
   configDir: ".cursor",

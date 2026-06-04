@@ -153,6 +153,16 @@ describe("CLI-dispatcher adapters keep their dispatcher form (#738 non-regressio
     }
   });
 
+  test("copilot-cli still emits 'context-mode hook copilot-cli <event>' shape", async () => {
+    const { CopilotCliAdapter } = await import("../../src/adapters/copilot-cli/index.js");
+    const adapter = new CopilotCliAdapter();
+    const cmds = flatCommands(adapter.generateHookConfig("/plugin/root") as Record<string, unknown>);
+    expect(cmds.length).toBeGreaterThan(0);
+    for (const cmd of cmds) {
+      expect(cmd).toMatch(/^context-mode hook copilot-cli /);
+    }
+  });
+
   test("jetbrains-copilot still emits 'context-mode hook jetbrains-copilot <event>' shape", async () => {
     const { JetBrainsCopilotAdapter } = await import("../../src/adapters/jetbrains-copilot/index.js");
     const adapter = new JetBrainsCopilotAdapter();

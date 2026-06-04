@@ -51,6 +51,21 @@ describe("vscode-copilot formatter", () => {
   });
 });
 
+describe("copilot-cli formatter", () => {
+  it("deny uses flat permissionDecisionReason", () => {
+    const result = formatters["copilot-cli"].deny("not allowed");
+    expect(result.permissionDecision).toBe("deny");
+    expect(result.permissionDecisionReason).toBe("not allowed");
+    expect(result).not.toHaveProperty("hookSpecificOutput");
+  });
+
+  it("modify uses Copilot CLI modifiedArgs", () => {
+    const result = formatters["copilot-cli"].modify({ command: "echo ok" });
+    expect(result.modifiedArgs).toEqual({ command: "echo ok" });
+    expect(result).not.toHaveProperty("updatedInput");
+  });
+});
+
 describe("formatDecision integration", () => {
   it("claude-code deny flows through with correct field names", () => {
     const result = formatDecision("claude-code", { action: "deny", reason: "sandbox only" });

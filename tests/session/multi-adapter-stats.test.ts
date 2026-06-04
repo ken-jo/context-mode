@@ -13,7 +13,7 @@
  * Cited code:
  *   src/session/analytics.ts:592-731  — current getLifetimeStats (single-dir)
  *   src/session/analytics.ts:887-989  — current getRealBytesStats (single-dir)
- *   src/adapters/detect.ts:92-111     — getSessionDirSegments map (15 platforms)
+ *   src/adapters/detect.ts:92-111     — getSessionDirSegments registry map
  *
  * Filter (decided in /diagnose conversation, B3a PRD):
  *   real = eventCount >= 100
@@ -97,14 +97,16 @@ function seed(
 // ─────────────────────────────────────────────────────────
 
 describe("Slice 2.1 — enumerateAdapterDirs()", () => {
-  test("returns one entry for each of the 15 known adapters", () => {
+  test("returns one entry for each known adapter", () => {
     const dirs = enumerateAdapterDirs({ home: "/HOME" });
     const names = dirs.map((d) => d.name).sort();
     expect(names).toEqual(
       [
         "antigravity",
+        "antigravity-cli",
         "claude-code",
         "codex",
+        "copilot-cli",
         "cursor",
         "gemini-cli",
         "jetbrains-copilot",
@@ -150,12 +152,14 @@ describe("Slice 2.1 — enumerateAdapterDirs()", () => {
     expect(byName["kilo"].sessionsDir).toBe(join(home, ".config", "kilo", "context-mode", "sessions"));
     expect(byName["pi"].sessionsDir).toBe(join(home, ".pi", "context-mode", "sessions"));
     expect(byName["antigravity"].sessionsDir).toBe(join(home, ".gemini", "context-mode", "sessions"));
+    expect(byName["antigravity-cli"].sessionsDir).toBe(join(home, ".gemini", "context-mode", "sessions"));
+    expect(byName["copilot-cli"].sessionsDir).toBe(join(home, ".copilot", "context-mode", "sessions"));
     expect(byName["jetbrains-copilot"].sessionsDir).toBe(join(home, ".config", "JetBrains", "context-mode", "sessions"));
   });
 
   test("defaults to os.homedir() when no override passed", () => {
     const dirs = enumerateAdapterDirs();
-    expect(dirs.length).toBe(15);
+    expect(dirs.length).toBe(17);
     const expectedSuffix = sep + join("context-mode", "sessions");
     expect(dirs.every((d) => d.sessionsDir.includes(expectedSuffix))).toBe(true);
   });

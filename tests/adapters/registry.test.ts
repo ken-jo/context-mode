@@ -109,9 +109,11 @@ describe("adapter registry", () => {
   it("antigravity + cursor are listed BEFORE vscode-copilot (fork-precedence)", () => {
     const idx = (id: string) => ADAPTER_REGISTRY.findIndex((e) => e.id === id);
     const antigravity = idx("antigravity");
+    const antigravityCli = idx("antigravity-cli");
     const cursor = idx("cursor");
     const vsc = idx("vscode-copilot");
     expect(antigravity).toBeLessThan(vsc);
+    expect(antigravityCli).toBeLessThan(vsc);
     expect(cursor).toBeLessThan(vsc);
   });
 

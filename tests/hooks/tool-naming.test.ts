@@ -88,6 +88,12 @@ describe("getToolName", () => {
     );
   });
 
+  it("returns correct name for antigravity-cli", () => {
+    expect(getToolName("antigravity-cli", "ctx_execute")).toBe(
+      "mcp__context-mode__ctx_execute",
+    );
+  });
+
   it("returns correct name for opencode", () => {
     expect(getToolName("opencode", "ctx_search")).toBe(
       "context-mode_ctx_search",
@@ -96,6 +102,12 @@ describe("getToolName", () => {
 
   it("returns correct name for vscode-copilot", () => {
     expect(getToolName("vscode-copilot", "ctx_batch_execute")).toBe(
+      "context-mode_ctx_batch_execute",
+    );
+  });
+
+  it("returns correct name for copilot-cli", () => {
+    expect(getToolName("copilot-cli", "ctx_batch_execute")).toBe(
       "context-mode_ctx_batch_execute",
     );
   });
@@ -150,9 +162,11 @@ describe("KNOWN_PLATFORMS", () => {
     expect(KNOWN_PLATFORMS).toContain("claude-code");
     expect(KNOWN_PLATFORMS).toContain("gemini-cli");
     expect(KNOWN_PLATFORMS).toContain("antigravity");
+    expect(KNOWN_PLATFORMS).toContain("antigravity-cli");
     expect(KNOWN_PLATFORMS).toContain("opencode");
     expect(KNOWN_PLATFORMS).toContain("kilo");
     expect(KNOWN_PLATFORMS).toContain("vscode-copilot");
+    expect(KNOWN_PLATFORMS).toContain("copilot-cli");
     expect(KNOWN_PLATFORMS).toContain("jetbrains-copilot");
     expect(KNOWN_PLATFORMS).toContain("kiro");
     expect(KNOWN_PLATFORMS).toContain("zed");

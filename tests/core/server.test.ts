@@ -1259,12 +1259,34 @@ describe("ctx_index: projectRoot path resolution (#365)", () => {
     delete cleanEnv.CLAUDE_CODE_ENTRYPOINT;
     delete cleanEnv.CLAUDE_PLUGIN_ROOT;
     delete cleanEnv.CLAUDE_SESSION_ID;
+    delete cleanEnv.CODEX_THREAD_ID;
+    delete cleanEnv.CODEX_CI;
     delete cleanEnv.GEMINI_PROJECT_DIR;
+    delete cleanEnv.GEMINI_CLI;
     delete cleanEnv.VSCODE_CWD;
+    delete cleanEnv.VSCODE_PID;
+    delete cleanEnv.CURSOR_CWD;
+    delete cleanEnv.CURSOR_TRACE_ID;
+    delete cleanEnv.CURSOR_CLI;
     delete cleanEnv.OPENCODE_PROJECT_DIR;
+    delete cleanEnv.OPENCODE_CLIENT;
+    delete cleanEnv.OPENCODE_TERMINAL;
+    delete cleanEnv.OPENCODE;
+    delete cleanEnv.OPENCODE_PID;
+    delete cleanEnv.KILO;
+    delete cleanEnv.KILO_PID;
+    delete cleanEnv.QWEN_PROJECT_DIR;
+    delete cleanEnv.ZED_SESSION_ID;
+    delete cleanEnv.ZED_TERM;
+    delete cleanEnv.ANTIGRAVITY_CLI_ALIAS;
+    delete cleanEnv.PI_CODING_AGENT_DIR;
     delete cleanEnv.PI_PROJECT_DIR;
     delete cleanEnv.PI_WORKSPACE_DIR;
+    delete cleanEnv.PI_CONFIG_DIR;
+    delete cleanEnv.PI_SESSION_FILE;
+    delete cleanEnv.PI_COMPILED;
     delete cleanEnv.CONTEXT_MODE_PROJECT_DIR;
+    delete cleanEnv.CONTEXT_MODE_PLATFORM;
 
     const proc = spawn("node", [buildEntry], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -4398,10 +4420,12 @@ describe("getSessionDirSegments — sync platform → segments map", () => {
     expect(getSessionDirSegments("codex")).toEqual([".codex"]);
     expect(getSessionDirSegments("qwen-code")).toEqual([".qwen"]);
     expect(getSessionDirSegments("gemini-cli")).toEqual([".gemini"]);
+    expect(getSessionDirSegments("antigravity-cli")).toEqual([".gemini"]);
     expect(getSessionDirSegments("kiro")).toEqual([".kiro"]);
     expect(getSessionDirSegments("cursor")).toEqual([".cursor"]);
     expect(getSessionDirSegments("openclaw")).toEqual([".openclaw"]);
     expect(getSessionDirSegments("vscode-copilot")).toEqual([".vscode"]);
+    expect(getSessionDirSegments("copilot-cli")).toEqual([".copilot"]);
     expect(getSessionDirSegments("antigravity")).toEqual([".gemini"]);
     expect(getSessionDirSegments("pi")).toEqual([".pi"]);
     expect(getSessionDirSegments("kilo")).toEqual([".config", "kilo"]);

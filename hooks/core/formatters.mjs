@@ -105,6 +105,29 @@ export const formatters = {
     }),
   },
 
+  // GitHub Copilot CLI uses top-level decision fields (NOT the VS Code
+  // hookSpecificOutput wrapper) — matches CopilotCliAdapter.format*Response.
+  "copilot-cli": {
+    deny: (reason) => ({
+      permissionDecision: "deny",
+      permissionDecisionReason: reason,
+    }),
+    // Carry the reason on `ask` too, so the user sees WHY confirmation is
+    // requested (Copilot CLI honors permissionDecisionReason; matches the
+    // adapter's formatPreToolUseResponse ask branch). Fall back when the
+    // routing decision carries no reason, so the prompt is never bare.
+    ask: (reason) => ({
+      permissionDecision: "ask",
+      permissionDecisionReason: reason ?? "Action requires user confirmation",
+    }),
+    modify: (updatedInput) => ({
+      modifiedArgs: updatedInput,
+    }),
+    context: (additionalContext) => ({
+      additionalContext,
+    }),
+  },
+
   "jetbrains-copilot": {
     deny: (reason) => ({
       permissionDecision: "deny",
@@ -197,7 +220,9 @@ export function formatDecision(platform, decision) {
 
   switch (decision.action) {
     case "deny": return fmt.deny(decision.reason);
-    case "ask": return fmt.ask();
+    // Pass the reason to ask() too — platforms whose ask formatter ignores it
+    // (legacy `ask: () => …`) are unaffected; copilot-cli surfaces it.
+    case "ask": return fmt.ask(decision.reason);
     case "modify": return fmt.modify(decision.updatedInput);
     case "context": return fmt.context(decision.additionalContext);
     default: return null;

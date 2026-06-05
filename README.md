@@ -39,7 +39,7 @@ Context Mode is an MCP server that solves all four sides of this problem:
 
 1. **Context Saving** — Sandbox tools keep raw data out of the context window. 315 KB becomes 5.4 KB. 98% reduction.
 2. **Session Continuity** — Every file edit, git operation, task, error, and user decision is tracked in SQLite. When the conversation compacts, context-mode doesn't dump this data back into context — it indexes events into FTS5 and retrieves only what's relevant via BM25 search. The model picks up exactly where you left off. If you don't `--continue`, previous session data is deleted immediately — a fresh session means a clean slate.
-3. **Think in Code** — The LLM should program the analysis, not compute it. Instead of reading 50 files into context to count functions, the agent writes a script that does the counting and `console.log()`s only the result. One script replaces ten tool calls and saves 100x context. This is a mandatory paradigm across all 16 platforms: stop treating the LLM as a data processor, treat it as a code generator.
+3. **Think in Code** — The LLM should program the analysis, not compute it. Instead of reading 50 files into context to count functions, the agent writes a script that does the counting and `console.log()`s only the result. One script replaces ten tool calls and saves 100x context. This is a mandatory paradigm across all 18 platforms: stop treating the LLM as a data processor, treat it as a code generator.
 
    ```js
    // Before: 47 × Read() = 700 KB.  After: 1 × ctx_execute() = 3.6 KB.
@@ -301,6 +301,57 @@ cp node_modules/context-mode/configs/jetbrains-copilot/copilot-instructions.md .
 Full hook config including PreCompact: [`configs/jetbrains-copilot/hooks.json`](configs/jetbrains-copilot/hooks.json)
 
 Full setup guide: [`docs/jetbrains-copilot.md`](docs/jetbrains-copilot.md)
+
+</details>
+
+<details>
+<summary><strong>GitHub Copilot CLI</strong> — MCP + hooks</summary>
+
+**Prerequisites:** Node.js >= 22.5 (or Bun), GitHub Copilot CLI (`copilot`) installed. Set `COPILOT_HOME` first if you use an isolated Copilot home.
+
+**Install:**
+
+1. Install context-mode globally:
+
+   ```bash
+   npm install -g context-mode
+   ```
+
+2. Register the MCP server with Copilot CLI's built-in command (writes `~/.copilot/mcp-config.json` for you):
+
+   ```bash
+   copilot mcp add context-mode -- context-mode
+   ```
+
+3. Configure hooks in `~/.copilot/hooks/context-mode.json` (or `$COPILOT_HOME/hooks/context-mode.json`). The Copilot CLI hooks schema **requires** the top-level `"version": 1` and uses flat `{ "type": "command", "command": "..." }` entries. Copilot CLI fires six events context-mode uses:
+
+   ```json
+   {
+     "version": 1,
+     "hooks": {
+       "PreToolUse":        [{ "type": "command", "command": "context-mode hook copilot-cli pretooluse" }],
+       "PostToolUse":       [{ "type": "command", "command": "context-mode hook copilot-cli posttooluse" }],
+       "PreCompact":        [{ "type": "command", "command": "context-mode hook copilot-cli precompact" }],
+       "SessionStart":      [{ "type": "command", "command": "context-mode hook copilot-cli sessionstart" }],
+       "UserPromptSubmit":  [{ "type": "command", "command": "context-mode hook copilot-cli userpromptsubmit" }],
+       "Stop":              [{ "type": "command", "command": "context-mode hook copilot-cli stop" }]
+     }
+   }
+   ```
+
+   Or let context-mode write **this hooks file** for you: `context-mode upgrade` (run from a Copilot CLI context, or with `CONTEXT_MODE_PLATFORM=copilot-cli`). `upgrade` writes the **hooks file only** — register the MCP server with `copilot mcp add` in step 2.
+
+4. Restart Copilot CLI.
+
+> **Plugins:** Copilot CLI also has a plugin system (`copilot plugin install`). It currently registers a plugin's **skills/agents** but not its MCP servers or hooks from a bundle, and direct (repo/URL/local) installs are being deprecated in favor of `plugin@marketplace`. So context-mode uses `copilot mcp add` (MCP) + the hooks file above rather than a plugin bundle.
+
+> **Version note:** the hook commands run the **global** `context-mode` (`context-mode hook copilot-cli …`), so they need a context-mode version with Copilot CLI support. On an older global the hooks are inert (no routing/capture) until you upgrade — but they do **not** block your tools (context-mode fails open). Upgrade with `npm install -g context-mode@latest`.
+
+**Verify:** In a Copilot CLI session, type `ctx stats`. Context-mode tools should appear and respond. Run `context-mode doctor` to confirm hook + MCP registration.
+
+**Routing:** Automatic via hooks (PreToolUse interception + SessionStart routing block). Auto-detected via MCP `clientInfo.name` (`GitHub Copilot CLI`) or, in a bare shell, a context-mode-written marker (`~/.copilot/mcp-config.json` or `~/.copilot/hooks/context-mode.json`) — not a bare `~/.copilot/` dir, so a co-installed-but-unconfigured Copilot CLI is not mis-detected as context-mode-on-copilot.
+
+See [`docs/platform-support.md`](docs/platform-support.md#github-copilot-cli) for the full reference. Tracking: [#775](https://github.com/mksglu/context-mode/issues/775).
 
 </details>
 
@@ -800,6 +851,47 @@ The Codex plugin manifest provides MCP via `.codex-plugin/mcp.json`, skills via
 **Routing:** Manual. The `GEMINI.md` file is the only enforcement method (~60% compliance). There is no programmatic interception. Auto-detected via MCP protocol handshake (`clientInfo.name`) — no manual platform configuration needed.
 
 Full configs: [`configs/antigravity/mcp_config.json`](configs/antigravity/mcp_config.json) | [`configs/antigravity/GEMINI.md`](configs/antigravity/GEMINI.md)
+
+</details>
+
+<details>
+<summary><strong>Antigravity CLI (<code>agy</code>)</strong> — plugin (MCP + skill + capture hook)</summary>
+
+**Prerequisites:** Node.js >= 22.5 (or Bun), Antigravity CLI (`agy`) installed.
+
+`agy` has a Claude-compatible **plugin** system, so context-mode installs as a first-class agy plugin that bundles the MCP server, a routing skill, and a capture hook in one step.
+
+**Install** (same one-command pattern as OpenClaw — the script resolves the bundle path for you):
+
+1. Make the MCP server available globally (the plugin runs the `context-mode` binary):
+
+   ```bash
+   npm install -g context-mode
+   ```
+
+2. Clone and install the plugin:
+
+   ```bash
+   git clone https://github.com/mksglu/context-mode.git
+   cd context-mode
+   npm run install:agy
+   ```
+
+   `npm run install:agy` runs `agy plugin install` on the bundle at `configs/antigravity-cli/` — registering the MCP server, the routing skill, and the `PostToolUse` capture hook. Restart `agy`.
+
+> **Capture-hook version note:** the `PostToolUse` capture hook runs the **global** `context-mode` binary (`context-mode hook antigravity-cli posttooluse`), so it needs a context-mode version with Antigravity CLI support. On an older global the **MCP server + routing skill still work**, but session capture is inert — the installer probes for this and prints a warning if your global is too old (upgrade with `npm install -g context-mode@latest`). To remove the plugin later: `agy plugin uninstall context-mode`.
+
+> **Already using context-mode in Claude Code?** `agy plugin import claude` pulls in the MCP server + skill without a clone (the bundle above also adds the capture hook).
+
+**Verify:** `agy -p "Use the context-mode ctx_execute MCP tool to compute 7 + 5. Answer only the number." --dangerously-skip-permissions` should print `12`.
+
+**Install (alternative — MCP only):** add context-mode to `~/.gemini/config/mcp_config.json` (agy's **global** MCP profile — `config/`, distinct from the Antigravity IDE's `antigravity/` path):
+
+```json
+{ "mcpServers": { "context-mode": { "command": "context-mode" } } }
+```
+
+**Routing & capture:** Enforcement is the routing skill (`~60%` compliance) — agy honors no PreToolUse stdout veto in auto-run mode, so context-mode does **not** claim to block tools on agy. The `PostToolUse` hook is **capture-only**: it records tool usage into context-mode's session DB under `~/.gemini/context-mode/sessions/`. Auto-detected via MCP `clientInfo.name` (`agy`) or, in a bare shell, the `~/.local/bin/agy` / `~/.gemini/config/mcp_config.json` markers — probed before the generic `~/.claude` fallback so a gemini-cli→agy migrant is not mis-detected as Claude Code ([#774](https://github.com/mksglu/context-mode/issues/774)).
 
 </details>
 

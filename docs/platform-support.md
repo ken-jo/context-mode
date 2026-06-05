@@ -4,13 +4,13 @@ This document provides a comprehensive comparison of all platforms supported by 
 
 ## Overview
 
-context-mode supports sixteen platforms across three hook paradigms:
+context-mode supports eighteen platforms across three hook paradigms:
 
 | Paradigm | Platforms |
 |----------|-----------|
-| **JSON stdin/stdout** | Claude Code, Gemini CLI, VS Code Copilot, JetBrains Copilot, Cursor, Codex CLI, Qwen Code, Kimi Code |
+| **JSON stdin/stdout** | Claude Code, Gemini CLI, VS Code Copilot, JetBrains Copilot, GitHub Copilot CLI, Cursor, Codex CLI, Qwen Code, Kimi Code |
 | **TS Plugin** | OpenCode, KiloCode, OpenClaw |
-| **MCP-only** | Antigravity, Kiro, Zed, Pi, OMP (Oh My Pi) |
+| **MCP-only** | Antigravity, Antigravity CLI (`agy`), Kiro, Zed, Pi, OMP (Oh My Pi) |
 
 The MCP server layer is 100% portable and needs no adapter. Only the hook layer requires platform-specific adapters.
 
@@ -374,6 +374,38 @@ Google Antigravity is an AI-powered IDE by Google/DeepMind. It shares the `~/.ge
 
 ---
 
+### Antigravity CLI (`agy`)
+
+**Status:** Plugin — MCP + routing skill + capture hook (enforcement is MCP-only)
+
+**Hook Paradigm:** MCP for tools + a capture-only `PostToolUse` hook
+
+The standalone Antigravity CLI (`agy`) is the command-line companion to Google Antigravity. Unlike the Antigravity IDE, `agy` has a **Claude-compatible plugin system** (`agy plugin install|import`) and a hook surface (`~/.gemini/config/hooks.json`). context-mode ships as a first-class agy plugin (`configs/antigravity-cli/`) bundling the MCP server, a routing skill, and a `PostToolUse` capture hook. It shares the `~/.gemini/` session root with the rest of the Gemini family; `agy` reads its **global** MCP profile from `~/.gemini/config/mcp_config.json` (not the IDE's `~/.gemini/antigravity/mcp_config.json`).
+
+**Install** (same one-command pattern as OpenClaw — `npm run install:<platform>`):
+- `npm install -g context-mode` (the plugin's MCP server runs the `context-mode` binary), then `git clone https://github.com/mksglu/context-mode.git && cd context-mode && npm run install:agy`. The `install:agy` script (`scripts/install-antigravity-cli-plugin.sh`) auto-resolves and runs `agy plugin install configs/antigravity-cli`, registering MCP + routing skill + `PostToolUse` capture hook. `agy` routes a `.claude-plugin/`-containing bundle through its claude-code import path, so MCP is declared the Claude way (`mcpServers` in `plugin.json` + `.mcp.json`); hooks live in `hooks/hooks.json`.
+- Already on Claude Code (no clone): `agy plugin import claude` pulls in the MCP server + routing skill (the bundle above also adds the capture hook).
+- MCP only: add context-mode to `~/.gemini/config/mcp_config.json` under `mcpServers` (`{"command":"context-mode"}`).
+
+**Detection:**
+- MCP protocol handshake (`clientInfo.name: "agy"` / `"antigravity-cli"`)
+- Config-dir markers for a bare shell: `~/.local/bin/agy`, `~/.gemini/antigravity-cli/`, or `~/.gemini/config/mcp_config.json` — probed **before** the generic `~/.claude` / `~/.gemini` fallbacks so a gemini-cli→agy migrant is not mis-detected as Claude Code ([#774](https://github.com/mksglu/context-mode/issues/774))
+- Fallback: `CONTEXT_MODE_PLATFORM=antigravity-cli` override
+
+**Hook payload (verified against agy 1.0.5):** `{ conversationId, stepIdx, toolCall: { name, args }, error, workspacePaths: [..], transcriptPath }`. The event name arrives via argv (set in `hooks.json`), and the hook CWD is `~/.gemini/config`, so the project dir is read from `workspacePaths[0]`. context-mode maps these onto its capture pipeline (`conversationId`→session id, `workspacePaths[0]`→project dir).
+
+**Capabilities:**
+- PostToolUse: capture-only (records tool usage into the session DB)
+- PreToolUse / PreCompact / SessionStart: -- (not used)
+- Can modify args / output / inject context: -- (agy honors no hook stdout veto in auto-run mode)
+
+**Known Issues / Caveats:**
+- **No hook-based enforcement.** agy ignores a PreToolUse stdout veto when tools auto-run (verified), so context-mode does not register a blocking hook — enforcement is the routing skill (~60% compliance). The `PostToolUse` hook is strictly for **capture** (stats/continuity).
+- agy's `PostToolUse` payload carries no tool-output text, so byte-accounting for tool output is unavailable on this surface; the tool call + project + error state are still captured.
+- Shares `~/.gemini/` with Gemini CLI and Antigravity — session DB uses the project hash to prevent collisions.
+
+---
+
 ### Kiro
 
 **Status:** MCP-only (hooks planned for Phase 2)
@@ -532,6 +564,61 @@ context-mode hook jetbrains-copilot sessionstart
 - Shares the same hook wire protocol as VS Code Copilot
 - MCP servers are configured via Settings UI, not a file
 - Requires GitHub Copilot plugin v1.5.57+
+
+---
+
+### GitHub Copilot CLI
+
+**Status:** Supported (native hooks + MCP)
+
+**Hook Paradigm:** JSON stdin/stdout
+
+The standalone GitHub Copilot CLI (`copilot`) is user-home rooted under `~/.copilot` (override with `COPILOT_HOME`). It shares the VS Code Copilot family's PascalCase hook event names, but its command output contract is **top-level** (`permissionDecision`, `modifiedArgs`, `additionalContext`) rather than the VS Code `hookSpecificOutput` wrapper — context-mode's `copilot-cli` adapter formats responses accordingly.
+
+**Hook Names** (Copilot CLI 1.0.59 fires six events context-mode uses; verified against the `@github/copilot` binary):
+- `PreToolUse` -- fires before a tool is executed
+- `PostToolUse` -- fires after a tool completes
+- `PreCompact` -- fires before context compaction
+- `SessionStart` -- fires when a session starts
+- `UserPromptSubmit` -- fires when the user submits a prompt (user-prompt capture)
+- `Stop` -- fires when the agent stops (session-end capture)
+
+**Hook config shape:** flat `{ "type": "command", "command": "..." }` entries under a top-level `"version": 1` (required by the Copilot CLI hooks schema — the Claude-Code nested `{ matcher, hooks: [...] }` shape is rejected).
+
+**Blocking:** top-level `permissionDecision: "deny"` + `permissionDecisionReason`
+
+**Arg Modification:** top-level `modifiedArgs`
+
+**Context Injection:** top-level `additionalContext` — **SessionStart** is the confirmed channel (verified reaching the model). PreToolUse/PostToolUse `additionalContext` is best-effort/unverified; context-mode's `posttooluse` hook is capture-only and emits no context.
+
+**Configuration:**
+- MCP: register with Copilot CLI's own command — `copilot mcp add context-mode -- context-mode` — which writes `~/.copilot/mcp-config.json` (or `$COPILOT_HOME/mcp-config.json`). (Also `copilot mcp list` / `copilot mcp remove`.)
+- Hook config: `$COPILOT_HOME/hooks/context-mode.json` or `~/.copilot/hooks/context-mode.json` (written by `context-mode upgrade`)
+- Instruction files: `.github/copilot-instructions.md`, `AGENTS.md`
+- **Plugins:** Copilot CLI has a plugin system (`copilot plugin install`), but it currently registers a plugin's skills/agents only — not MCP servers or hooks from a bundle — and direct (repo/URL/local) installs are being deprecated for `plugin@marketplace`. So context-mode uses `copilot mcp add` + the hooks file rather than a plugin bundle.
+
+**Detection:**
+- MCP protocol handshake (`clientInfo.name: "GitHub Copilot CLI"` / `"copilot-cli"`)
+- Config-dir marker: a context-mode-written file under `~/.copilot/` (`mcp-config.json` or `hooks/context-mode.json`) — **not** a bare `~/.copilot/` directory, so a co-installed-but-unconfigured Copilot CLI is not mis-detected (probed before the generic `~/.claude` fallback)
+- Fallback: `CONTEXT_MODE_PLATFORM=copilot-cli` override
+
+**Hook Commands:**
+```
+context-mode hook copilot-cli pretooluse
+context-mode hook copilot-cli posttooluse
+context-mode hook copilot-cli precompact
+context-mode hook copilot-cli sessionstart
+context-mode hook copilot-cli userpromptsubmit
+context-mode hook copilot-cli stop
+```
+
+**Known Issues / Caveats:**
+- The Copilot CLI hooks schema requires `"version": 1`; without it the runtime silently ignores the file.
+- `COPILOT_HOME` relocates both the hook and MCP config roots.
+
+**Sources:**
+- Hooks schema: [GitHub Copilot CLI hooks configuration](https://docs.github.com/en/copilot/reference/hooks-configuration)
+- Feature request: [#775](https://github.com/mksglu/context-mode/issues/775)
 
 ---
 

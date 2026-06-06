@@ -13,6 +13,7 @@ describe("CopilotCliAdapter", () => {
   beforeEach(() => {
     savedEnv = { ...process.env };
     delete process.env.COPILOT_HOME;
+    delete process.env.CONTEXT_MODE_DATA_DIR;
     adapter = new CopilotCliAdapter();
   });
 
@@ -54,6 +55,15 @@ describe("CopilotCliAdapter", () => {
     it("session dir is under ~/.copilot/context-mode/sessions", () => {
       const sessionDir = adapter.getSessionDir();
       expect(sessionDir).toBe(join(homedir(), ".copilot", "context-mode", "sessions"));
+    });
+
+    it("session dir follows COPILOT_HOME so the server and hook runtime agree", () => {
+      // The hook runtime honors COPILOT_HOME (COPILOT_OPTS.configDirEnv); the
+      // server's getSessionDir() must too, or writes and reads diverge.
+      process.env.COPILOT_HOME = resolve(homedir(), "custom-copilot");
+      expect(adapter.getSessionDir()).toBe(
+        join(resolve(homedir(), "custom-copilot"), "context-mode", "sessions"),
+      );
     });
   });
 

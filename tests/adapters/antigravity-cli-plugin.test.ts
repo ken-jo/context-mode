@@ -55,16 +55,18 @@ describe("configs/antigravity-cli — agy plugin bundle", () => {
     expect(existsSync(resolve(__dirname, "..", "..", "hooks", "antigravity-cli", "posttooluse.mjs"))).toBe(true);
   });
 
-  it("ships the npm run install:agy one-command installer (parity with install:openclaw)", () => {
+  it("ships the npm run install:agy one-command installer (cross-platform Node)", () => {
     const repoRoot = resolve(__dirname, "..", "..");
     const pkg = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf-8"));
-    // Mirrors the install:openclaw script shape so the install UX is consistent.
-    expect(pkg.scripts["install:agy"]).toContain("scripts/install-antigravity-cli-plugin.sh");
+    // A Node installer (not bash) so `npm run install:agy` runs natively on
+    // Windows too — agy runs on Windows, so its installer must (unlike the
+    // POSIX-only openclaw installer).
+    expect(pkg.scripts["install:agy"]).toContain("scripts/install-antigravity-cli-plugin.mjs");
 
-    const sh = resolve(repoRoot, "scripts", "install-antigravity-cli-plugin.sh");
-    expect(existsSync(sh)).toBe(true);
-    const body = readFileSync(sh, "utf-8");
+    const installer = resolve(repoRoot, "scripts", "install-antigravity-cli-plugin.mjs");
+    expect(existsSync(installer)).toBe(true);
+    const body = readFileSync(installer, "utf-8");
     expect(body).toContain("agy plugin install");
-    expect(body).toContain("configs/antigravity-cli");
+    expect(body).toContain("antigravity-cli");
   });
 });

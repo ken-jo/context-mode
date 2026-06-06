@@ -464,14 +464,24 @@ export function detectPlatform(clientInfo?: { name: string; version?: string }):
     };
   }
 
+  // GitHub Copilot CLI's config root is relocatable via COPILOT_HOME (the
+  // documented relocation env, incl. on Windows), so the marker must honor it —
+  // not just ~/.copilot. Mirrors copilotCliHome() in copilot-cli/index.ts.
+  const copilotHome = (() => {
+    const raw = process.env.COPILOT_HOME;
+    if (raw && raw.trim() !== "") {
+      return raw.startsWith("~") ? resolve(home, raw.replace(/^~[/\\]?/, "")) : resolve(raw);
+    }
+    return resolve(home, ".copilot");
+  })();
   if (
-    existsSync(resolve(home, ".copilot", "mcp-config.json")) ||
-    existsSync(resolve(home, ".copilot", "hooks", "context-mode.json"))
+    existsSync(resolve(copilotHome, "mcp-config.json")) ||
+    existsSync(resolve(copilotHome, "hooks", "context-mode.json"))
   ) {
     return {
       platform: "copilot-cli",
       confidence: "medium",
-      reason: "context-mode config in ~/.copilot exists (mcp-config.json or hooks/context-mode.json)",
+      reason: "context-mode config in Copilot CLI home exists (mcp-config.json or hooks/context-mode.json; honors COPILOT_HOME)",
     };
   }
 

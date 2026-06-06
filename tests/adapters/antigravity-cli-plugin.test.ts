@@ -7,7 +7,13 @@ import { resolve } from "node:path";
  * install with `agy plugin install configs/antigravity-cli` or
  * `agy plugin import claude`. agy routes a `.claude-plugin/`-containing dir
  * through its claude-code import path, so MCP must be declared the Claude way
- * (mcpServers in plugin.json + .mcp.json); hooks live in hooks/hooks.json.
+ * (mcpServers in .claude-plugin/plugin.json, mirrored by the agy-native
+ * mcp_config.json); hooks live in hooks/hooks.json.
+ *
+ * NOTE: .mcp.json is intentionally NOT shipped in the bundle. It is gitignored
+ * repo-wide (see .gitignore) — committing it has silently broken fresh installs
+ * before (#253/#531), so end users get MCP from plugin.json's mcpServers on
+ * `agy plugin install`, never from a bundle .mcp.json.
  */
 const PLUGIN = resolve(__dirname, "..", "..", "configs", "antigravity-cli");
 
@@ -21,11 +27,12 @@ describe("configs/antigravity-cli — agy plugin bundle", () => {
     expect(manifest.skills).toBe("./skills/");
   });
 
-  it("ships .mcp.json (Claude convention agy install reads) and mcp_config.json (agy-native)", () => {
-    for (const f of [".mcp.json", "mcp_config.json"]) {
-      const mcp = JSON.parse(readFileSync(resolve(PLUGIN, f), "utf-8"));
-      expect(mcp.mcpServers?.["context-mode"]?.command).toBe("context-mode");
-    }
+  it("ships mcp_config.json (agy-native) declaring the context-mode MCP server", () => {
+    // The Claude-way MCP declaration (.claude-plugin/plugin.json mcpServers) is
+    // asserted above. .mcp.json is intentionally NOT shipped — it is gitignored
+    // repo-wide and committing it has regressed fresh installs (#253/#531).
+    const mcp = JSON.parse(readFileSync(resolve(PLUGIN, "mcp_config.json"), "utf-8"));
+    expect(mcp.mcpServers?.["context-mode"]?.command).toBe("context-mode");
   });
 
   it("hooks/hooks.json wires the capture-only PostToolUse dispatcher", () => {

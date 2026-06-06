@@ -383,7 +383,7 @@ Google Antigravity is an AI-powered IDE by Google/DeepMind. It shares the `~/.ge
 The standalone Antigravity CLI (`agy`) is the command-line companion to Google Antigravity. Unlike the Antigravity IDE, `agy` has a **Claude-compatible plugin system** (`agy plugin install|import`) and a hook surface (`~/.gemini/config/hooks.json`). context-mode ships as a first-class agy plugin (`configs/antigravity-cli/`) bundling the MCP server, a routing skill, and a `PostToolUse` capture hook. It shares the `~/.gemini/` session root with the rest of the Gemini family; `agy` reads its **global** MCP profile from `~/.gemini/config/mcp_config.json` (not the IDE's `~/.gemini/antigravity/mcp_config.json`).
 
 **Install** (same one-command pattern as OpenClaw — `npm run install:<platform>`):
-- `npm install -g context-mode` (the plugin's MCP server runs the `context-mode` binary), then `git clone https://github.com/mksglu/context-mode.git && cd context-mode && npm run install:agy`. The `install:agy` script (`scripts/install-antigravity-cli-plugin.mjs`, cross-platform Node — runs natively on Windows, macOS, and Linux; no bash required) auto-resolves and runs `agy plugin install configs/antigravity-cli` (which registers the routing skill + `PostToolUse` capture hook), then writes the context-mode MCP server into agy's global MCP profile `~/.gemini/config/mcp_config.json`. The separate MCP step is required because `agy plugin install` **skips `mcpServers`** — it reads MCP only from a bundle `.mcp.json` (which is intentionally not shipped, gitignored repo-wide after #253/#531), and agy has no `agy mcp add` command. agy loads its global MCP profile from `~/.gemini/config/mcp_config.json` (verified end-to-end). `agy` routes a `.claude-plugin/`-containing bundle through its claude-code import path, so MCP is declared the Claude way — `mcpServers` in `.claude-plugin/plugin.json` (mirrored by the agy-native `mcp_config.json`); hooks live in `hooks/hooks.json`. (`.mcp.json` is intentionally not shipped — it is gitignored repo-wide because committing it has regressed fresh installs in the past.)
+- `npm install -g context-mode` (the plugin's MCP server runs the `context-mode` binary), then `git clone https://github.com/mksglu/context-mode.git && cd context-mode && npm run install:agy`. The `install:agy` script (`scripts/install-antigravity-cli-plugin.mjs`, cross-platform Node — runs natively on Windows, macOS, and Linux; no bash required) auto-resolves and runs `agy plugin install configs/antigravity-cli` (which registers the routing skill + `PostToolUse` capture hook), then writes the context-mode MCP server into agy's global MCP profile `~/.gemini/config/mcp_config.json`, and clears agy's stale tool-schema cache (`~/.gemini/antigravity-cli/mcp/context-mode/`) so agy re-fetches the current Gemini-safe schemas. The separate MCP step is required because `agy plugin install` **skips `mcpServers`** — it reads MCP only from a bundle `.mcp.json` (which is intentionally not shipped, gitignored repo-wide after #253/#531), and agy has no `agy mcp add` command. agy loads its global MCP profile from `~/.gemini/config/mcp_config.json` (verified end-to-end). `agy` routes a `.claude-plugin/`-containing bundle through its claude-code import path, so MCP is declared the Claude way — `mcpServers` in `.claude-plugin/plugin.json` (mirrored by the agy-native `mcp_config.json`); hooks live in `hooks/hooks.json`. (`.mcp.json` is intentionally not shipped — it is gitignored repo-wide because committing it has regressed fresh installs in the past.)
 - Already on Claude Code (no clone): `agy plugin import claude` pulls in the MCP server + routing skill (the bundle above also adds the capture hook).
 - MCP only: add context-mode to `~/.gemini/config/mcp_config.json` under `mcpServers` (`{"command":"context-mode"}`).
 
@@ -403,6 +403,7 @@ The standalone Antigravity CLI (`agy`) is the command-line companion to Google A
 - **No hook-based enforcement.** agy ignores a PreToolUse stdout veto when tools auto-run (verified), so context-mode does not register a blocking hook — enforcement is the routing skill (~60% compliance). The `PostToolUse` hook is strictly for **capture** (stats/continuity).
 - agy's `PostToolUse` payload carries no tool-output text, so byte-accounting for tool output is unavailable on this surface; the tool call + project + error state are still captured.
 - Shares `~/.gemini/` with Gemini CLI and Antigravity — session DB uses the project hash to prevent collisions.
+- **Gemini function-calling tool exposure.** agy exposes MCP tools as Gemini function declarations, and Gemini's API rejects JSON Schema `const` / `additionalProperties` — a rejected schema makes agy **silently drop** that tool from the model's function list (the agent then hand-rolls the tool via shell scripts instead of calling it). context-mode emits Gemini-safe tool schemas (`const`→`enum`, `additionalProperties` stripped) so the `ctx_*` tools are exposed. agy also **caches** each server's tool schemas under `~/.gemini/antigravity-cli/mcp/<server>/` and does **not** refresh them on reconnect, so a cache captured by an older context-mode keeps the tools hidden — `npm run install:agy` clears that cache (delete `~/.gemini/antigravity-cli/mcp/context-mode/` by hand if you registered MCP without the installer).
 
 ---
 
@@ -608,7 +609,7 @@ The standalone GitHub Copilot CLI (`copilot`) is user-home rooted under `~/.copi
 
 **Detection:**
 - MCP protocol handshake (`clientInfo.name: "GitHub Copilot CLI"` / `"copilot-cli"`)
-- Config-dir marker: a context-mode-written file under `~/.copilot/` (`mcp-config.json` or `hooks/context-mode.json`) — **not** a bare `~/.copilot/` directory, so a co-installed-but-unconfigured Copilot CLI is not mis-detected (probed before the generic `~/.claude` fallback)
+- Config-dir marker: a context-mode-written file under `~/.copilot/` (or `$COPILOT_HOME` — the marker check honors it) — `mcp-config.json` or `hooks/context-mode.json`, **not** a bare `~/.copilot/` directory, so a co-installed-but-unconfigured Copilot CLI is not mis-detected (probed before the generic `~/.claude` fallback)
 - Fallback: `CONTEXT_MODE_PLATFORM=copilot-cli` override
 
 **Hook Commands:**
@@ -623,7 +624,7 @@ context-mode hook copilot-cli stop
 
 **Known Issues / Caveats:**
 - The Copilot CLI hooks schema requires `"version": 1`; without it the runtime silently ignores the file.
-- `COPILOT_HOME` relocates both the hook and MCP config roots.
+- `COPILOT_HOME` relocates the hook config, the MCP config, **and** the context-mode session-DB root (the adapter's `getSessionDir()` honors it, so the server reads sessions from the same place the hook runtime writes them).
 
 **Sources:**
 - Hooks schema: [GitHub Copilot CLI hooks configuration](https://docs.github.com/en/copilot/reference/hooks-configuration)

@@ -877,7 +877,7 @@ Full configs: [`configs/antigravity/mcp_config.json`](configs/antigravity/mcp_co
    npm run install:agy
    ```
 
-   `npm run install:agy` runs `agy plugin install` on the bundle at `configs/antigravity-cli/` — registering the MCP server, the routing skill, and the `PostToolUse` capture hook. The installer is cross-platform Node (runs natively on Windows, macOS, and Linux — no bash required). Restart `agy`.
+   `npm run install:agy` runs `agy plugin install` on the bundle at `configs/antigravity-cli/` — registering the MCP server, the routing skill, and the `PostToolUse` capture hook — then clears agy's stale tool-schema cache so the `ctx_*` tools appear in the model's tool list (agy caches MCP schemas and doesn't refresh them; an old cache hides the tools). The installer is cross-platform Node (runs natively on Windows, macOS, and Linux — no bash required). Restart `agy`.
 
 > **Capture-hook version note:** the `PostToolUse` capture hook runs the **global** `context-mode` binary (`context-mode hook antigravity-cli posttooluse`), so it needs a context-mode version with Antigravity CLI support. On an older global the **MCP server + routing skill still work**, but session capture is inert — the installer probes for this and prints a warning if your global is too old (upgrade with `npm install -g context-mode@latest`). To remove the plugin later: `agy plugin uninstall context-mode`.
 

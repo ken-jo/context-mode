@@ -605,7 +605,7 @@ The standalone GitHub Copilot CLI (`copilot`) is user-home rooted under `~/.copi
 - MCP: register with Copilot CLI's own command — `copilot mcp add context-mode -- context-mode` — which writes `~/.copilot/mcp-config.json` (or `$COPILOT_HOME/mcp-config.json`). (Also `copilot mcp list` / `copilot mcp remove`.)
 - Hook config: `$COPILOT_HOME/hooks/context-mode.json` or `~/.copilot/hooks/context-mode.json` (written by `context-mode upgrade`)
 - Instruction files: `.github/copilot-instructions.md`, `AGENTS.md`
-- **Plugins:** Copilot CLI has a plugin system (`copilot plugin install`), but it currently registers a plugin's skills/agents only — not MCP servers or hooks from a bundle — and direct (repo/URL/local) installs are being deprecated for `plugin@marketplace`. So context-mode uses `copilot mcp add` + the hooks file rather than a plugin bundle.
+- **Plugins:** Copilot CLI's plugin system (`copilot plugin install`) **can** register MCP servers (a `.mcp.json` in the plugin root or `.github/mcp.json`) and hooks (`hooks.json`), in addition to skills/agents — installable in one command from a GitHub repo subdirectory (`copilot plugin install owner/repo:path`, no clone). context-mode currently registers via `copilot mcp add` + `context-mode upgrade`; a shippable Copilot plugin bundle (`configs/copilot-cli/`) is a planned follow-up.
 
 **Detection:**
 - MCP protocol handshake (`clientInfo.name: "GitHub Copilot CLI"` / `"copilot-cli"`)

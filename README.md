@@ -343,7 +343,7 @@ Full setup guide: [`docs/jetbrains-copilot.md`](docs/jetbrains-copilot.md)
 
 4. Restart Copilot CLI.
 
-> **Plugins:** Copilot CLI also has a plugin system (`copilot plugin install`). It currently registers a plugin's **skills/agents** but not its MCP servers or hooks from a bundle, and direct (repo/URL/local) installs are being deprecated in favor of `plugin@marketplace`. So context-mode uses `copilot mcp add` (MCP) + the hooks file above rather than a plugin bundle.
+> **Plugins:** Copilot CLI's plugin system (`copilot plugin install`) **can** register MCP servers (`.mcp.json` / `.github/mcp.json`) and hooks (`hooks.json`) — not just skills/agents — and installs in one command from a GitHub repo or subdirectory (`copilot plugin install owner/repo:path`, no clone). context-mode currently registers via `copilot mcp add` (MCP) + the hooks file above; a one-command Copilot plugin bundle is a planned follow-up.
 
 > **Version note:** the hook commands run the **global** `context-mode` (`context-mode hook copilot-cli …`), so they need a context-mode version with Copilot CLI support. On an older global the hooks are inert (no routing/capture) until you upgrade — but they do **not** block your tools (context-mode fails open). Upgrade with `npm install -g context-mode@latest`.
 

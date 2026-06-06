@@ -66,4 +66,28 @@ describe("configs/copilot-cli — GitHub Copilot CLI plugin bundle", () => {
     expect(manifest.name).toBe("context-mode");
     expect(manifest.skills).toContain("./skills/context-mode");
   });
+
+  it("hooks.json wires the capture hooks via the global `context-mode hook copilot-cli` dispatcher", () => {
+    // Copilot auto-discovers a root `hooks.json` (version 1). The bundle ships
+    // the SAME shape `context-mode upgrade` writes to ~/.copilot/hooks/ — so a
+    // plugin install registers the hooks with no `upgrade` / agent call. Keep
+    // them byte-equivalent: the standalone path is what's verified against the
+    // @github/copilot binary, and divergence would silently break capture.
+    const hooks = JSON.parse(readFileSync(resolve(PLUGIN, "hooks.json"), "utf-8"));
+    expect(hooks.version).toBe(1);
+    // PreToolUse (routing/veto) + SessionStart are the required pair; the rest
+    // are capture. All six dispatch the global binary, not a bundled script.
+    for (const [event, arg] of [
+      ["PreToolUse", "pretooluse"],
+      ["PostToolUse", "posttooluse"],
+      ["SessionStart", "sessionstart"],
+      ["UserPromptSubmit", "userpromptsubmit"],
+      ["Stop", "stop"],
+      ["PreCompact", "precompact"],
+    ] as const) {
+      const entry = hooks.hooks?.[event]?.[0];
+      expect(entry?.type).toBe("command");
+      expect(entry?.command).toBe(`context-mode hook copilot-cli ${arg}`);
+    }
+  });
 });

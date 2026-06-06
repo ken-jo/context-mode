@@ -1,10 +1,14 @@
 import "../setup-home";
 import { describe, it, expect, beforeEach } from "vitest";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { AntigravityAdapter } from "../../src/adapters/antigravity/index.js";
-import { AntigravityCliAdapter, antigravityCliHooksPath } from "../../src/adapters/antigravity-cli/index.js";
+import {
+  AntigravityCliAdapter,
+  antigravityCliHooksPath,
+  antigravityCliPluginDir,
+} from "../../src/adapters/antigravity-cli/index.js";
 import { hashProjectDirCanonical, resolveSessionDbPath } from "../../src/session/db.js";
 
 describe("AntigravityAdapter", () => {
@@ -175,14 +179,32 @@ describe("AntigravityCliAdapter", () => {
     );
   });
 
-  it("checkPluginRegistration fails with mcpServers remediation when config is missing", () => {
+  it("checkPluginRegistration fails with the install:agy remediation when nothing is registered", () => {
     rmSync(adapter.getSettingsPath(), { force: true });
+    rmSync(join(antigravityCliPluginDir(), "mcp_config.json"), { force: true });
 
     expect(adapter.checkPluginRegistration()).toMatchObject({
       check: "MCP registration",
       status: "fail",
-      fix: `Add context-mode to mcpServers in ${resolve(homedir(), ".gemini", "config", "mcp_config.json")}`,
+      fix: "npm run install:agy",
     });
+  });
+
+  it("checkPluginRegistration PASSES when MCP is in the plugin profile (agy plugin install)", () => {
+    // B: `agy plugin install` writes MCP to ~/.gemini/config/plugins/context-mode/
+    // mcp_config.json — not the global profile. doctor must recognize it.
+    rmSync(adapter.getSettingsPath(), { force: true });
+    const pluginMcp = join(antigravityCliPluginDir(), "mcp_config.json");
+    mkdirSync(antigravityCliPluginDir(), { recursive: true });
+    writeFileSync(
+      pluginMcp,
+      JSON.stringify({ mcpServers: { "context-mode": { command: "context-mode" } } }),
+    );
+
+    const result = adapter.checkPluginRegistration();
+    expect(result.status).toBe("pass");
+    expect(result.message).toContain("mcp_config.json");
+    rmSync(pluginMcp, { force: true });
   });
 
   it("hooks path is ~/.gemini/config/hooks.json", () => {
@@ -222,6 +244,7 @@ describe("AntigravityCliAdapter", () => {
 
   it("validateHooks warns until the capture hook is configured, then passes (capture-only)", () => {
     rmSync(antigravityCliHooksPath(), { force: true });
+    rmSync(join(antigravityCliPluginDir(), "hooks.json"), { force: true });
     const before = adapter.validateHooks("/plugin/root");
     expect(before[0].status).toBe("warn");
 
@@ -229,5 +252,26 @@ describe("AntigravityCliAdapter", () => {
     const after = adapter.validateHooks("/plugin/root");
     expect(after[0].status).toBe("pass");
     expect(after[0].message).toContain("capture-only");
+  });
+
+  it("validateHooks PASSES when the capture hook is in the plugin profile (agy plugin install)", () => {
+    // B: `agy plugin install` writes the hook to ~/.gemini/config/plugins/
+    // context-mode/hooks.json — not the global hooks.json. doctor must recognize it.
+    rmSync(antigravityCliHooksPath(), { force: true });
+    const pluginHooks = join(antigravityCliPluginDir(), "hooks.json");
+    mkdirSync(antigravityCliPluginDir(), { recursive: true });
+    writeFileSync(
+      pluginHooks,
+      JSON.stringify({
+        hooks: {
+          PostToolUse: [
+            { matcher: "", hooks: [{ type: "command", command: "context-mode hook antigravity-cli posttooluse" }] },
+          ],
+        },
+      }),
+    );
+
+    expect(adapter.validateHooks("/plugin/root")[0].status).toBe("pass");
+    rmSync(pluginHooks, { force: true });
   });
 });

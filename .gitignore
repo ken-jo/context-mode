@@ -36,6 +36,11 @@ context-mode-guidance-*/
 # rule above guards, so un-ignore exactly this one path. It pins
 # CONTEXT_MODE_PLATFORM=copilot-cli so the server self-identifies as Copilot.
 !configs/copilot-cli/.mcp.json
+# Same for the Antigravity CLI (agy) plugin bundle: `agy plugin install` reads MCP
+# from a bundle `.mcp.json` (verified — it registers it into the plugin-scoped
+# ~/.gemini/config/plugins/<name>/mcp_config.json). Pins
+# CONTEXT_MODE_PLATFORM=antigravity-cli so the server self-identifies as agy.
+!configs/antigravity-cli/.mcp.json
 .claude-worktrees/
 .vibetree/
 .cw/

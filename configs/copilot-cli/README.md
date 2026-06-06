@@ -16,6 +16,11 @@ This registers:
   and platform detection resolve `copilot-cli`, never a co-installed Claude Code.
 - **Routing skill** (`skills/context-mode/`) — the MANDATORY "Think in Code"
   rules that keep raw bytes out of the context window.
+- **Capture hooks** (`hooks.json`) — `PreToolUse`, `PostToolUse`,
+  `SessionStart`, `UserPromptSubmit`, `Stop`, `PreCompact`, each dispatching
+  `context-mode hook copilot-cli <event>`. Byte-equivalent to what
+  `context-mode upgrade` writes to `~/.copilot/hooks/`, so the plugin registers
+  them with no `upgrade` / agent call.
 
 ## Prerequisite
 

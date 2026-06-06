@@ -13,7 +13,7 @@
  * Usage: npm run install:agy   (or: node scripts/install-antigravity-cli-plugin.mjs)
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -95,6 +95,26 @@ try {
   console.error('  Add it manually: { "mcpServers": { "context-mode": { "command": "context-mode" } } }');
 }
 
+// agy CACHES each MCP server's tool schemas under
+// ~/.gemini/antigravity-cli/mcp/<server>/ and does NOT refresh them on reconnect
+// (verified on agy 1.0.6). A cache captured by an older context-mode holds the
+// Gemini-incompatible schemas (`const` / `additionalProperties`) that make
+// Antigravity CLI silently DROP the ctx_* tools from the model's function list —
+// so even after upgrading, agy keeps hiding the tools and the agent works around
+// them via shell scripts. Clear the cache so agy re-fetches the current
+// (Gemini-safe) tools/list on its next launch.
+const agyToolCache = join(homedir(), ".gemini", "antigravity-cli", "mcp", "context-mode");
+let cacheCleared = false;
+if (existsSync(agyToolCache)) {
+  try {
+    rmSync(agyToolCache, { recursive: true, force: true });
+    cacheCleared = true;
+  } catch (err) {
+    console.error(`⚠ Could not clear agy's stale tool-schema cache at ${agyToolCache}: ${err.message}`);
+    console.error("  If ctx_* tools don't appear in agy, delete that folder manually and restart agy.");
+  }
+}
+
 // Probe whether the global `context-mode` understands the antigravity-cli hook.
 // The shipped hook command (`context-mode hook antigravity-cli posttooluse`)
 // resolves the GLOBAL binary at runtime. A context-mode older than the release
@@ -117,6 +137,9 @@ if (mcpOk) {
   console.log(`✓ MCP server registered in ${mcpPath} (agy's global MCP profile).`);
 } else {
   console.error(`⚠ MCP server NOT registered — add context-mode to ${mcpPath} manually.`);
+}
+if (cacheCleared) {
+  console.log("✓ Cleared agy's stale tool-schema cache — agy re-fetches Gemini-safe schemas on next launch.");
 }
 if (captureOk) {
   console.log("✓ PostToolUse capture hook is ACTIVE (this context-mode supports antigravity-cli).");

@@ -71,5 +71,10 @@ describe("configs/antigravity-cli — agy plugin bundle", () => {
     // agy plugin install skips mcpServers, so the installer must also register
     // the MCP server in agy's global profile (~/.gemini/config/mcp_config.json).
     expect(body).toContain("mcp_config.json");
+    // agy caches tool schemas and never refreshes them; the installer must clear
+    // that cache (~/.gemini/antigravity-cli/mcp/context-mode) or the Gemini-safe
+    // schema fix never reaches the model.
+    expect(body).toContain("rmSync");
+    expect(body).toContain('"mcp", "context-mode"');
   });
 });

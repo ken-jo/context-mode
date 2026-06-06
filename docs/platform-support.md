@@ -4,7 +4,7 @@ This document provides a comprehensive comparison of all platforms supported by 
 
 ## Overview
 
-context-mode supports eighteen platforms across three hook paradigms:
+context-mode supports 17 client platforms, plus the OpenClaw gateway integration, across three hook paradigms:
 
 | Paradigm | Platforms |
 |----------|-----------|

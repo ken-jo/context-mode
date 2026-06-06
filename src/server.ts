@@ -353,6 +353,68 @@ server.server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts
 server.server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }));
 server.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({ resourceTemplates: [] }));
 
+// ── Strict-client (Gemini function-calling) schema compatibility ──────────────
+// Gemini's function-calling API — used by Antigravity CLI (`agy`) and Gemini CLI
+// — rejects JSON Schema `const` and `additionalProperties`. A rejected parameter
+// schema makes the host SILENTLY DROP that tool from the model's function list,
+// so the agent never sees our ctx_* tools and falls back to hand-rolling the MCP
+// protocol through its Bash tool. Sanitize the EMITTED tools/list schema:
+//   • `const: X`  →  `enum: [X]`   — an identical single-value constraint
+//   • drop `additionalProperties`  — advisory only; every ctx_* handler parses
+//     args with Zod (which strips unknown keys server-side), so removing it
+//     changes no validation and no call behavior.
+// Both transforms are behavior-preserving for every other client (Claude Code,
+// Copilot, Cursor, …): `const` and a one-value `enum` are equivalent, and no
+// model sends undeclared properties. Only the wire schema changes — never
+// validation or how any tool is invoked.
+export function sanitizeSchemaForStrictClients(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(sanitizeSchemaForStrictClients);
+  if (node === null || typeof node !== "object") return node;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (key === "additionalProperties") continue;
+    if (key === "const") {
+      out.enum = [value];
+      continue;
+    }
+    out[key] = sanitizeSchemaForStrictClients(value);
+  }
+  return out;
+}
+
+// Wrap the SDK-installed tools/list handler so its generated schemas pass through
+// the sanitizer above. Best-effort by design: if the MCP SDK's internals shift,
+// the original handler is left untouched (no regression — strict clients stay as
+// they were, every other client unaffected). Must run AFTER all registerTool()
+// calls so the SDK's default tools/list handler already exists.
+export function installStrictClientSchemaCompat(target: McpServer = server): void {
+  try {
+    const low = target.server as unknown as {
+      _requestHandlers?: Map<string, (req: unknown, extra: unknown) => Promise<unknown>>;
+    };
+    const original = low._requestHandlers?.get("tools/list");
+    if (typeof original !== "function") return;
+    target.server.setRequestHandler(ListToolsRequestSchema, async (req, extra) => {
+      const result = (await original(req as unknown, extra as unknown)) as
+        | { tools?: Array<{ inputSchema?: unknown }> }
+        | undefined;
+      if (result && Array.isArray(result.tools)) {
+        for (const tool of result.tools) {
+          if (!tool || tool.inputSchema == null) continue;
+          try {
+            tool.inputSchema = sanitizeSchemaForStrictClients(tool.inputSchema);
+          } catch {
+            /* leave this tool's schema unchanged */
+          }
+        }
+      }
+      return result as never;
+    });
+  } catch {
+    /* best-effort — never break tools/list */
+  }
+}
+
 const executor = new PolyglotExecutor({
   runtimes,
   projectRoot: () => getProjectDir(),
@@ -4888,6 +4950,11 @@ async function main() {
     }
   }
 }
+
+// Runs after every registerTool() above, so the SDK's default tools/list handler
+// exists and can be wrapped. Makes ctx_* schemas safe for strict (Gemini
+// function-calling) clients like Antigravity CLI (`agy`) / Gemini CLI.
+installStrictClientSchemaCompat();
 
 if (process.env.CONTEXT_MODE_EMBEDDED_PLUGIN_TOOLS !== "1") {
   main().catch((err) => {

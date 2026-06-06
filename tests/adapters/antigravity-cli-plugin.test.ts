@@ -68,5 +68,8 @@ describe("configs/antigravity-cli — agy plugin bundle", () => {
     const body = readFileSync(installer, "utf-8");
     expect(body).toContain("agy plugin install");
     expect(body).toContain("antigravity-cli");
+    // agy plugin install skips mcpServers, so the installer must also register
+    // the MCP server in agy's global profile (~/.gemini/config/mcp_config.json).
+    expect(body).toContain("mcp_config.json");
   });
 });

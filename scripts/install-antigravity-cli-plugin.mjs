@@ -13,8 +13,9 @@
  * Usage: npm run install:agy   (or: node scripts/install-antigravity-cli-plugin.mjs)
  */
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const isWin = process.platform === "win32";
@@ -63,6 +64,37 @@ if (install.status !== 0) {
   process.exit(install.status ?? 1);
 }
 
+// `agy plugin install` registers the skill + capture hook but SKIPS mcpServers
+// (verified against agy 1.0.5: it logs "mcpServers : skipped (not found)" because
+// it reads MCP only from a bundle `.mcp.json`, which we do not ship — gitignored
+// repo-wide after #253/#531). agy has no `agy mcp add` command; it loads its
+// GLOBAL MCP profile from ~/.gemini/config/mcp_config.json (verified: writing
+// there makes the ctx_* tools resolve), so register context-mode there directly.
+const mcpPath = join(homedir(), ".gemini", "config", "mcp_config.json");
+let mcpOk = false;
+try {
+  let cfg = {};
+  if (existsSync(mcpPath)) {
+    try {
+      const parsed = JSON.parse(readFileSync(mcpPath, "utf8"));
+      if (parsed && typeof parsed === "object") cfg = parsed;
+    } catch {
+      // malformed JSON — start fresh rather than crash the install
+    }
+  }
+  if (!cfg.mcpServers || typeof cfg.mcpServers !== "object") cfg.mcpServers = {};
+  const cur = cfg.mcpServers["context-mode"];
+  if (!cur || cur.command !== "context-mode") {
+    cfg.mcpServers["context-mode"] = { command: "context-mode" };
+    mkdirSync(dirname(mcpPath), { recursive: true });
+    writeFileSync(mcpPath, JSON.stringify(cfg, null, 2) + "\n");
+  }
+  mcpOk = cfg.mcpServers["context-mode"]?.command === "context-mode";
+} catch (err) {
+  console.error(`⚠ Could not register the MCP server in ${mcpPath}: ${err.message}`);
+  console.error('  Add it manually: { "mcpServers": { "context-mode": { "command": "context-mode" } } }');
+}
+
 // Probe whether the global `context-mode` understands the antigravity-cli hook.
 // The shipped hook command (`context-mode hook antigravity-cli posttooluse`)
 // resolves the GLOBAL binary at runtime. A context-mode older than the release
@@ -80,7 +112,12 @@ if (hasContextMode) {
 }
 
 console.log("");
-console.log("✓ Installed the context-mode agy plugin: MCP server + routing skill.");
+console.log(`✓ Installed the context-mode agy plugin: routing skill${mcpOk ? " + MCP server" : ""}.`);
+if (mcpOk) {
+  console.log(`✓ MCP server registered in ${mcpPath} (agy's global MCP profile).`);
+} else {
+  console.error(`⚠ MCP server NOT registered — add context-mode to ${mcpPath} manually.`);
+}
 if (captureOk) {
   console.log("✓ PostToolUse capture hook is ACTIVE (this context-mode supports antigravity-cli).");
 } else {

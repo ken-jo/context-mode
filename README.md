@@ -309,7 +309,16 @@ Full setup guide: [`docs/jetbrains-copilot.md`](docs/jetbrains-copilot.md)
 
 **Prerequisites:** Node.js >= 22.5 (or Bun), GitHub Copilot CLI (`copilot`) installed. Set `COPILOT_HOME` first if you use an isolated Copilot home.
 
-**Install:**
+**Install — Option A (plugin, one command — recommended):**
+
+```bash
+npm install -g context-mode                                     # the plugin's MCP server runs the global binary
+copilot plugin install mksglu/context-mode:configs/copilot-cli  # registers MCP + hooks + routing skill
+```
+
+The bundle's `.mcp.json` pins `CONTEXT_MODE_PLATFORM=copilot-cli`, so context-mode self-identifies as Copilot — `ctx_upgrade` and platform detection resolve `copilot-cli` even when Claude Code is co-installed (whose `~/.claude/` would otherwise win). No `context-mode upgrade` / agent call needed. To try it from a local clone before it lands on the default branch, point Copilot at the bundle directory: `copilot --plugin-dir /path/to/context-mode/configs/copilot-cli`.
+
+**Install — Option B (manual, no plugin):**
 
 1. Install context-mode globally:
 
@@ -343,7 +352,7 @@ Full setup guide: [`docs/jetbrains-copilot.md`](docs/jetbrains-copilot.md)
 
 4. Restart Copilot CLI.
 
-> **Plugins:** Copilot CLI's plugin system (`copilot plugin install`) **can** register MCP servers (`.mcp.json` / `.github/mcp.json`) and hooks (`hooks.json`) — not just skills/agents — and installs in one command from a GitHub repo or subdirectory (`copilot plugin install owner/repo:path`, no clone). context-mode currently registers via `copilot mcp add` (MCP) + the hooks file above; a one-command Copilot plugin bundle is a planned follow-up.
+> **Plugins:** Option A above uses Copilot CLI's plugin system, which registers MCP servers (`.mcp.json`), hooks (`hooks.json`), and skills (`skills/`) together — not just skills/agents. The shipped bundle is `configs/copilot-cli/`; `copilot plugin install owner/repo:path` installs it in one command (no clone). Option B is the equivalent without a plugin.
 
 > **Version note:** the hook commands run the **global** `context-mode` (`context-mode hook copilot-cli …`), so they need a context-mode version with Copilot CLI support. On an older global the hooks are inert (no routing/capture) until you upgrade — but they do **not** block your tools (context-mode fails open). Upgrade with `npm install -g context-mode@latest`.
 

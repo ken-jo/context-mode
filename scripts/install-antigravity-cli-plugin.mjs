@@ -13,7 +13,7 @@
  * Usage: npm run install:agy   (or: node scripts/install-antigravity-cli-plugin.mjs)
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,36 +64,12 @@ if (install.status !== 0) {
   process.exit(install.status ?? 1);
 }
 
-// `agy plugin install` registers the skill + capture hook but SKIPS mcpServers
-// (verified against agy 1.0.5: it logs "mcpServers : skipped (not found)" because
-// it reads MCP only from a bundle `.mcp.json`, which we do not ship — gitignored
-// repo-wide after #253/#531). agy has no `agy mcp add` command; it loads its
-// GLOBAL MCP profile from ~/.gemini/config/mcp_config.json (verified: writing
-// there makes the ctx_* tools resolve), so register context-mode there directly.
-const mcpPath = join(homedir(), ".gemini", "config", "mcp_config.json");
-let mcpOk = false;
-try {
-  let cfg = {};
-  if (existsSync(mcpPath)) {
-    try {
-      const parsed = JSON.parse(readFileSync(mcpPath, "utf8"));
-      if (parsed && typeof parsed === "object") cfg = parsed;
-    } catch {
-      // malformed JSON — start fresh rather than crash the install
-    }
-  }
-  if (!cfg.mcpServers || typeof cfg.mcpServers !== "object") cfg.mcpServers = {};
-  const cur = cfg.mcpServers["context-mode"];
-  if (!cur || cur.command !== "context-mode") {
-    cfg.mcpServers["context-mode"] = { command: "context-mode" };
-    mkdirSync(dirname(mcpPath), { recursive: true });
-    writeFileSync(mcpPath, JSON.stringify(cfg, null, 2) + "\n");
-  }
-  mcpOk = cfg.mcpServers["context-mode"]?.command === "context-mode";
-} catch (err) {
-  console.error(`⚠ Could not register the MCP server in ${mcpPath}: ${err.message}`);
-  console.error('  Add it manually: { "mcpServers": { "context-mode": { "command": "context-mode" } } }');
-}
+// MCP is registered by `agy plugin install` above, straight from the bundle's
+// `.mcp.json` (env-pinned CONTEXT_MODE_PLATFORM=antigravity-cli). Verified on agy
+// 1.0.6: it logs "mcpServers : 1 processed" and writes the server into agy's
+// plugin profile (~/.gemini/config/plugins/context-mode/mcp_config.json, env
+// preserved). No separate global-profile write — shipping `.mcp.json` (the
+// .gitignore un-ignore enables exactly this) is what `agy plugin install` reads.
 
 // agy CACHES each MCP server's tool schemas under
 // ~/.gemini/antigravity-cli/mcp/<server>/ and does NOT refresh them on reconnect
@@ -132,11 +108,19 @@ if (hasContextMode) {
 }
 
 console.log("");
-console.log(`✓ Installed the context-mode agy plugin: routing skill${mcpOk ? " + MCP server" : ""}.`);
-if (mcpOk) {
-  console.log(`✓ MCP server registered in ${mcpPath} (agy's global MCP profile).`);
+// Confirm `agy plugin install` actually registered the MCP from the bundle's
+// .mcp.json (it writes it into agy's plugin profile). If a future agy build skips
+// it, fall back to a one-line manual instruction rather than silently leaving MCP
+// unconfigured — never re-introduce a blind global-profile write.
+const pluginMcp = join(homedir(), ".gemini", "config", "plugins", "context-mode", "mcp_config.json");
+if (existsSync(pluginMcp)) {
+  console.log("✓ Installed the context-mode agy plugin: MCP server + routing skill + capture hook.");
+  console.log(`  MCP registered from the bundle's .mcp.json → ${pluginMcp}`);
 } else {
-  console.error(`⚠ MCP server NOT registered — add context-mode to ${mcpPath} manually.`);
+  console.log("✓ Installed the context-mode agy plugin: routing skill + capture hook.");
+  console.error("⚠ MCP server not found in agy's plugin profile. If ctx_* tools don't appear, add");
+  console.error('    { "mcpServers": { "context-mode": { "command": "context-mode" } } }');
+  console.error("  to ~/.gemini/config/mcp_config.json and restart agy.");
 }
 if (cacheCleared) {
   console.log("✓ Cleared agy's stale tool-schema cache — agy re-fetches Gemini-safe schemas on next launch.");

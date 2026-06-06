@@ -1,38 +1,58 @@
 import { describe, it, expect } from "vitest";
+import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 /**
  * Guards the shipped agy plugin bundle (configs/antigravity-cli/), which users
- * install with `agy plugin install configs/antigravity-cli` or
- * `agy plugin import claude`. agy routes a `.claude-plugin/`-containing dir
- * through its claude-code import path, so MCP must be declared the Claude way
- * (mcpServers in .claude-plugin/plugin.json, mirrored by the agy-native
- * mcp_config.json); hooks live in hooks/hooks.json.
+ * install with `npm run install:agy` (→ `agy plugin install configs/antigravity-cli`).
  *
- * NOTE: .mcp.json is intentionally NOT shipped in the bundle. It is gitignored
- * repo-wide (see .gitignore) — committing it has silently broken fresh installs
- * before (#253/#531), so end users get MCP from plugin.json's mcpServers on
- * `agy plugin install`, never from a bundle .mcp.json.
+ * agy's plugin system is Claude-compatible: it reads `.claude-plugin/plugin.json`
+ * for identity + skills, a root `.mcp.json` for MCP servers, and `hooks/hooks.json`
+ * for hooks. Verified on agy 1.0.6: `agy plugin install` with a bundle `.mcp.json`
+ * logs "mcpServers : 1 processed" and registers the server — env preserved — into
+ * ~/.gemini/config/plugins/<name>/mcp_config.json. So MCP + skill + capture hook
+ * all register in ONE command; the installer no longer writes a global MCP profile.
+ *
+ * Like the Copilot bundle, this `.mcp.json` IS committed (a plugin has no other
+ * way to declare MCP) — .gitignore un-ignores exactly configs/antigravity-cli/.mcp.json.
  */
 const PLUGIN = resolve(__dirname, "..", "..", "configs", "antigravity-cli");
+const REPO_ROOT = resolve(__dirname, "..", "..");
 
 describe("configs/antigravity-cli — agy plugin bundle", () => {
-  it("manifest declares the MCP server AND the skills dir (skills key must not silently drop)", () => {
-    const manifest = JSON.parse(readFileSync(resolve(PLUGIN, ".claude-plugin", "plugin.json"), "utf-8"));
-    expect(manifest.name).toBe("context-mode");
-    expect(manifest.mcpServers?.["context-mode"]?.command).toBe("context-mode");
-    // The routing skill is agy's ONLY enforcement (capture-only hooks, no veto),
-    // so the manifest must declare it like every other Claude-layout manifest.
-    expect(manifest.skills).toBe("./skills/");
+  it("ships a COMMITTED .mcp.json (git must not ignore it) pinned to antigravity-cli", () => {
+    const mcpPath = resolve(PLUGIN, ".mcp.json");
+    expect(existsSync(mcpPath)).toBe(true);
+    // The repo-wide `.mcp.json` ignore must be negated for this path, or the
+    // bundle ships with no MCP and `agy plugin install` registers none.
+    let ignored = "";
+    try {
+      ignored = execFileSync("git", ["check-ignore", "configs/antigravity-cli/.mcp.json"], {
+        cwd: REPO_ROOT,
+        encoding: "utf-8",
+      }).trim();
+    } catch {
+      // `git check-ignore` exits non-zero (no output) when NOT ignored — desired.
+    }
+    expect(ignored).toBe("");
+    const mcp = JSON.parse(readFileSync(mcpPath, "utf-8"));
+    const server = mcp.mcpServers?.["context-mode"];
+    expect(server?.command).toBe("context-mode");
+    // The env pin makes the server self-identify as agy, so detection / ctx_upgrade
+    // resolve antigravity-cli even when ~/.claude (a gemini-cli→agy migration leaves
+    // both dirs) would otherwise win — the core of #774, fixed at the MCP level.
+    expect(server?.env?.CONTEXT_MODE_PLATFORM).toBe("antigravity-cli");
   });
 
-  it("ships mcp_config.json (agy-native) declaring the context-mode MCP server", () => {
-    // The Claude-way MCP declaration (.claude-plugin/plugin.json mcpServers) is
-    // asserted above. .mcp.json is intentionally NOT shipped — it is gitignored
-    // repo-wide and committing it has regressed fresh installs (#253/#531).
-    const mcp = JSON.parse(readFileSync(resolve(PLUGIN, "mcp_config.json"), "utf-8"));
-    expect(mcp.mcpServers?.["context-mode"]?.command).toBe("context-mode");
+  it("manifest declares name + the skills dir (no mcpServers — .mcp.json owns MCP)", () => {
+    const manifest = JSON.parse(readFileSync(resolve(PLUGIN, ".claude-plugin", "plugin.json"), "utf-8"));
+    expect(manifest.name).toBe("context-mode");
+    // The routing skill is agy's ONLY enforcement (capture-only hooks, no veto).
+    expect(manifest.skills).toBe("./skills/");
+    // MCP lives in .mcp.json now, not duplicated in the manifest (agy plugin
+    // install reads MCP from .mcp.json, not the manifest's mcpServers).
+    expect(manifest.mcpServers).toBeUndefined();
   });
 
   it("hooks/hooks.json wires the capture-only PostToolUse dispatcher", () => {
@@ -56,21 +76,16 @@ describe("configs/antigravity-cli — agy plugin bundle", () => {
   });
 
   it("ships the npm run install:agy one-command installer (cross-platform Node)", () => {
-    const repoRoot = resolve(__dirname, "..", "..");
-    const pkg = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf-8"));
+    const pkg = JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8"));
     // A Node installer (not bash) so `npm run install:agy` runs natively on
-    // Windows too — agy runs on Windows, so its installer must (unlike the
-    // POSIX-only openclaw installer).
+    // Windows too — agy runs on Windows, so its installer must.
     expect(pkg.scripts["install:agy"]).toContain("scripts/install-antigravity-cli-plugin.mjs");
 
-    const installer = resolve(repoRoot, "scripts", "install-antigravity-cli-plugin.mjs");
+    const installer = resolve(REPO_ROOT, "scripts", "install-antigravity-cli-plugin.mjs");
     expect(existsSync(installer)).toBe(true);
     const body = readFileSync(installer, "utf-8");
     expect(body).toContain("agy plugin install");
     expect(body).toContain("antigravity-cli");
-    // agy plugin install skips mcpServers, so the installer must also register
-    // the MCP server in agy's global profile (~/.gemini/config/mcp_config.json).
-    expect(body).toContain("mcp_config.json");
     // agy caches tool schemas and never refreshes them; the installer must clear
     // that cache (~/.gemini/antigravity-cli/mcp/context-mode) or the Gemini-safe
     // schema fix never reaches the model.

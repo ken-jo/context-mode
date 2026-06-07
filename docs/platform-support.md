@@ -8,9 +8,9 @@ context-mode supports 17 client platforms, plus the OpenClaw gateway integration
 
 | Paradigm | Platforms |
 |----------|-----------|
-| **JSON stdin/stdout** | Claude Code, Gemini CLI, VS Code Copilot, JetBrains Copilot, GitHub Copilot CLI, Cursor, Codex CLI, Qwen Code, Kimi Code, Kiro |
+| **JSON stdin/stdout** | Claude Code, Gemini CLI, VS Code Copilot, JetBrains Copilot, GitHub Copilot CLI, Cursor, Codex CLI, Qwen Code, Kimi Code, Antigravity CLI (`agy`), Kiro |
 | **TS Plugin** | OpenCode, KiloCode, OpenClaw |
-| **MCP-only** | Antigravity, Antigravity CLI (`agy`), Zed, Pi, OMP (Oh My Pi) |
+| **MCP-only** | Antigravity, Zed, Pi, OMP (Oh My Pi) |
 
 The MCP server layer is 100% portable and needs no adapter. Only the hook layer requires platform-specific adapters.
 
@@ -34,22 +34,22 @@ This puts the `context-mode` binary in PATH, which is required for:
 
 | Feature | Claude Code | Qwen Code | Gemini CLI | VS Code Copilot | JetBrains Copilot | GitHub Copilot CLI | Cursor | OpenCode | KiloCode | OpenClaw | Codex CLI | Kimi Code | Antigravity | Antigravity CLI (`agy`) | Kiro | Zed | Pi | OMP |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **Paradigm** | json-stdio | json-stdio | json-stdio | json-stdio | json-stdio | json-stdio | json-stdio | ts-plugin | ts-plugin | ts-plugin | json-stdio | json-stdio | mcp-only | mcp-only | json-stdio | mcp-only | mcp-only | mcp-only |
-| **PreToolUse equivalent** | `PreToolUse` | `PreToolUse` | `BeforeTool` | `PreToolUse` | `PreToolUse` | `PreToolUse` | `preToolUse` | `tool.execute.before` | `tool.execute.before` | `tool_call:before` | `PreToolUse` | `PreToolUse` | -- | -- | `preToolUse` | -- | -- | -- |
+| **Paradigm** | json-stdio | json-stdio | json-stdio | json-stdio | json-stdio | json-stdio | json-stdio | ts-plugin | ts-plugin | ts-plugin | json-stdio | json-stdio | mcp-only | json-stdio | json-stdio | mcp-only | mcp-only | mcp-only |
+| **PreToolUse equivalent** | `PreToolUse` | `PreToolUse` | `BeforeTool` | `PreToolUse` | `PreToolUse` | `PreToolUse` | `preToolUse` | `tool.execute.before` | `tool.execute.before` | `tool_call:before` | `PreToolUse` | `PreToolUse` | -- | `PreToolUse` (bounded) | `preToolUse` | -- | -- | -- |
 | **PostToolUse equivalent** | `PostToolUse` | `PostToolUse` | `AfterTool` | `PostToolUse` | `PostToolUse` | `PostToolUse` | `postToolUse` | `tool.execute.after` | `tool.execute.after` | `tool_call:after` | `PostToolUse` | `PostToolUse` | -- | `PostToolUse` (capture-only) | `postToolUse` | -- | -- | -- |
 | **PreCompact equivalent** | `PreCompact` | `PreCompact` | `PreCompress` | `PreCompact` | `PreCompact` | `PreCompact` | -- | `experimental.session.compacting` | `experimental.session.compacting` | `registerContextEngine` | -- | `PreCompact` | -- | -- | -- | -- | -- | -- |
 | **SessionStart** | `SessionStart` | `SessionStart` | `SessionStart` | `SessionStart` | `SessionStart` | `SessionStart` | -- (buggy in Cursor) | -- | -- | `command:new` | `SessionStart` | `SessionStart` | -- | -- | -- | -- | -- | -- |
-| **Stop equivalent** | -- | -- | -- | `Stop` | `Stop` | `Stop` | `stop` | -- | -- | -- | `Stop` | `Stop` | -- | -- | -- | -- | -- | -- |
+| **Stop equivalent** | -- | -- | -- | `Stop` | `Stop` | `Stop` | `stop` | -- | -- | -- | `Stop` | `Stop` | -- | `Stop` | -- | -- | -- | -- |
 | **Can modify args** | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | No | Yes | -- | -- | -- | -- | -- | -- |
 | **Can modify output** | Yes | Yes | Yes | Yes | Yes | No | No | Yes (caveat) | Yes (caveat) | No | No | Yes | -- | -- | -- | -- | -- | -- |
 | **Can inject session context** | Yes | Yes | Yes | Yes | Yes | Yes | Yes | -- | -- | Yes | Yes | Yes | -- | -- | -- | -- | -- | -- |
-| **Can block tools** | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes (throw) | Yes (throw) | Yes | Yes | Yes | -- | -- | Yes | -- | -- | -- |
+| **Can block tools** | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes (throw) | Yes (throw) | Yes | Yes | Yes | -- | Bounded | Yes | -- | -- | -- |
 | **Config location** | `~/.claude/settings.json` | `~/.qwen/settings.json` | `~/.gemini/settings.json` | `.github/hooks/*.json` | `.github/hooks/*.json` | `~/.copilot/hooks/context-mode.json` + `~/.copilot/mcp-config.json` | `.cursor/hooks.json` or `~/.cursor/hooks.json` | `opencode.json` | `kilo.json` | `openclaw.json` | `~/.codex/hooks.json` + `~/.codex/config.toml` | `~/.kimi-code/config.toml` | `~/.gemini/antigravity/mcp_config.json` | `~/.gemini/config/mcp_config.json` + `~/.gemini/config/hooks.json` | `~/.kiro/settings/mcp.json` | `~/.config/zed/settings.json` | `~/.pi/settings.json` | `~/.omp/agent/mcp_config.json` |
 | **Session ID field** | `session_id` | `session_id` | `session_id` | `sessionId` (camelCase) | `sessionId` (camelCase) | `sessionId` (camelCase) | `conversation_id` | `sessionID` (camelCase) | `sessionID` (camelCase) | `pid-${ppid}` fallback | N/A | `session_id` | N/A | `conversationId` | `pid-${ppid}` fallback | N/A | N/A | N/A |
 | **Project dir env** | `CLAUDE_PROJECT_DIR` | `QWEN_PROJECT_DIR` | `GEMINI_PROJECT_DIR` | `CLAUDE_PROJECT_DIR` | `CLAUDE_PROJECT_DIR` | stdin `cwd` | stdin `workspace_roots` | `ctx.directory` (plugin init) | `ctx.directory` (plugin init) | `process.cwd()` | N/A | stdin `cwd` | N/A | stdin `workspacePaths[0]` | stdin `cwd` | N/A | N/A | `OMP_PROCESSING_AGENT_DIR` |
-| **MCP/tool naming** | `mcp__server__tool` | `mcp__server__tool` | `mcp__server__tool` | `f1e_` prefix | `f1e_` prefix | `mcp__server__tool` | `MCP:<tool>` in hook payloads | native `ctx_*` plugin tools | native `ctx_*` plugin tools | native `ctx_*` plugin tools | `mcp__server__tool` | `mcp__context-mode__tool` | `mcp__server__tool` | `mcp__server__tool` | `mcp__server__tool` | `mcp__server__tool` | `mcp__server__tool` | `mcp__server__tool` |
-| **Hook command format** | `context-mode hook claude-code <event>` | `context-mode hook qwen-code <event>` | `context-mode hook gemini-cli <event>` | `context-mode hook vscode-copilot <event>` | `context-mode hook jetbrains-copilot <event>` | `context-mode hook copilot-cli <event>` | `context-mode hook cursor <event>` | TS plugin (no command) | TS plugin (no command) | TS plugin (no command) | `context-mode hook codex <event>` | `context-mode hook kimi <event>` | N/A | `context-mode hook antigravity-cli posttooluse` | `context-mode hook kiro <event>` | N/A | N/A | N/A |
-| **Hook registration** | settings.json hooks object | settings.json hooks object | settings.json hooks object | `.github/hooks/*.json` | `.github/hooks/*.json` | `~/.copilot/hooks/context-mode.json` (`version: 1`) | `hooks.json` native hook arrays | opencode.json plugin array | kilo.json plugin array | openclaw.json `plugins.entries` | `~/.codex/hooks.json` | `config.toml` hooks array | N/A | plugin `hooks/hooks.json` (`PostToolUse`) | Kiro CLI hooks (JSON stdin) | N/A | N/A | N/A |
+| **MCP/tool naming** | `mcp__server__tool` | `mcp__server__tool` | `mcp__server__tool` | `f1e_` prefix | `f1e_` prefix | `mcp__server__tool` | `MCP:<tool>` in hook payloads | native `ctx_*` plugin tools | native `ctx_*` plugin tools | native `ctx_*` plugin tools | `mcp__server__tool` | `mcp__context-mode__tool` | `mcp__server__tool` | `context-mode/<tool>` | `mcp__server__tool` | `mcp__server__tool` | `mcp__server__tool` | `mcp__server__tool` |
+| **Hook command format** | `context-mode hook claude-code <event>` | `context-mode hook qwen-code <event>` | `context-mode hook gemini-cli <event>` | `context-mode hook vscode-copilot <event>` | `context-mode hook jetbrains-copilot <event>` | `context-mode hook copilot-cli <event>` | `context-mode hook cursor <event>` | TS plugin (no command) | TS plugin (no command) | TS plugin (no command) | `context-mode hook codex <event>` | `context-mode hook kimi <event>` | N/A | `context-mode hook antigravity-cli <event>` | `context-mode hook kiro <event>` | N/A | N/A | N/A |
+| **Hook registration** | settings.json hooks object | settings.json hooks object | settings.json hooks object | `.github/hooks/*.json` | `.github/hooks/*.json` | `~/.copilot/hooks/context-mode.json` (`version: 1`) | `hooks.json` native hook arrays | opencode.json plugin array | kilo.json plugin array | openclaw.json `plugins.entries` | `~/.codex/hooks.json` | `config.toml` hooks array | N/A | plugin root `hooks.json` (`PreToolUse`, `PostToolUse`, `Stop`; bundle mirrors `hooks/hooks.json` for agy validate/install) | Kiro CLI hooks (JSON stdin) | N/A | N/A | N/A |
 | **MCP server command** | `context-mode` (or plugin auto) | `context-mode` | `context-mode` | `context-mode` | `context-mode` | `context-mode` | `context-mode` | N/A (native plugin tools) | N/A (native plugin tools) | N/A (native plugin tools) | `context-mode` | `context-mode` | `context-mode` | `context-mode` | `context-mode` | `context-mode` | `context-mode` | `context-mode` |
 | **Plugin distribution** | Claude plugin registry | npm global | npm global | npm global | npm global | npm global | npm global | npm global | npm global | npm global | npm global | npm global | npm global | agy plugin (npm global) | npm global | npm global | npm global | npm global |
 | **Session dir** | `~/.claude/context-mode/sessions/` | `~/.qwen/context-mode/sessions/` | `~/.gemini/context-mode/sessions/` | `.github/context-mode/sessions/` or `~/.vscode/context-mode/sessions/` | `.github/context-mode/sessions/` | `~/.copilot/context-mode/sessions/` | `~/.cursor/context-mode/sessions/` | `~/.config/opencode/context-mode/sessions/` | `~/.config/kilo/context-mode/sessions/` | `~/.openclaw/context-mode/sessions/` | `~/.codex/context-mode/sessions/` | `~/.kimi-code/context-mode/sessions/` | `~/.gemini/context-mode/sessions/` | `~/.gemini/context-mode/sessions/` | `~/.kiro/context-mode/sessions/` | `~/.config/zed/context-mode/sessions/` | `~/.pi/context-mode/sessions/` | `~/.omp/context-mode/sessions/` |
@@ -376,15 +376,15 @@ Google Antigravity is an AI-powered IDE by Google/DeepMind. It shares the `~/.ge
 
 ### Antigravity CLI (`agy`)
 
-**Status:** Plugin — MCP + routing skill + capture hook (enforcement is MCP-only)
+**Status:** Plugin — MCP + routing rule + routing skill + bounded hooks
 
-**Hook Paradigm:** MCP for tools + a capture-only `PostToolUse` hook
+**Hook Paradigm:** MCP for tools + JSON stdin/stdout hooks
 
-The standalone Antigravity CLI (`agy`) is the command-line companion to Google Antigravity. Unlike the Antigravity IDE, `agy` has a **Claude-compatible plugin system** (`agy plugin install|import`) and a hook surface (`~/.gemini/config/hooks.json`). context-mode ships as a first-class agy plugin (`configs/antigravity-cli/`) bundling the MCP server, a routing skill, and a `PostToolUse` capture hook. It shares the `~/.gemini/` session root with the rest of the Gemini family; `agy` reads its **global** MCP profile from `~/.gemini/config/mcp_config.json` (not the IDE's `~/.gemini/antigravity/mcp_config.json`).
+The standalone Antigravity CLI (`agy`) is the command-line companion to Google Antigravity. Unlike the Antigravity IDE, `agy` has a **native plugin system** (`agy plugin install|import`) and a hook surface (`~/.gemini/config/hooks.json`). context-mode ships as a first-class agy plugin (`configs/antigravity-cli/`) bundling the MCP server, a routing rule, a routing skill, and bounded `PreToolUse`/`PostToolUse`/`Stop` hooks. It shares the `~/.gemini/` session root with the rest of the Gemini family; `agy` reads its **global** MCP profile from `~/.gemini/config/mcp_config.json` (not the IDE's `~/.gemini/antigravity/mcp_config.json`).
 
 **Install** (same one-command pattern as OpenClaw — `npm run install:<platform>`):
-- `npm install -g context-mode` (the plugin's MCP server runs the `context-mode` binary), then `git clone https://github.com/mksglu/context-mode.git && cd context-mode && npm run install:agy`. The `install:agy` script (`scripts/install-antigravity-cli-plugin.mjs`, cross-platform Node — runs natively on Windows, macOS, and Linux; no bash required) auto-resolves and runs `agy plugin install configs/antigravity-cli` (which registers the routing skill + `PostToolUse` capture hook), then writes the context-mode MCP server into agy's global MCP profile `~/.gemini/config/mcp_config.json`, and clears agy's stale tool-schema cache (`~/.gemini/antigravity-cli/mcp/context-mode/`) so agy re-fetches the current Gemini-safe schemas. The separate MCP step is required because `agy plugin install` **skips `mcpServers`** — it reads MCP only from a bundle `.mcp.json` (which is intentionally not shipped, gitignored repo-wide after #253/#531), and agy has no `agy mcp add` command. agy loads its global MCP profile from `~/.gemini/config/mcp_config.json` (verified end-to-end). `agy` routes a `.claude-plugin/`-containing bundle through its claude-code import path, so MCP is declared the Claude way — `mcpServers` in `.claude-plugin/plugin.json` (mirrored by the agy-native `mcp_config.json`); hooks live in `hooks/hooks.json`. (`.mcp.json` is intentionally not shipped — it is gitignored repo-wide because committing it has regressed fresh installs in the past.)
-- Already on Claude Code (no clone): `agy plugin import claude` pulls in the MCP server + routing skill (the bundle above also adds the capture hook).
+- `npm install -g context-mode` (the plugin's MCP server runs the `context-mode` binary), then `git clone https://github.com/mksglu/context-mode.git && cd context-mode && npm run install:agy`. The `install:agy` script (`scripts/install-antigravity-cli-plugin.mjs`, cross-platform Node — runs natively on Windows, macOS, and Linux; no bash required) auto-resolves and runs `agy plugin install configs/antigravity-cli`, registering the bundle native `plugin.json` + `mcp_config.json`, routing rule, routing skill, and hooks into agy's plugin profile under `~/.gemini/config/plugins/context-mode/`. It then clears agy's stale tool-schema cache (`~/.gemini/antigravity-cli/mcp/context-mode/`) so agy re-fetches the current Gemini-safe schemas.
+- Already on Claude Code (no clone): `agy plugin import claude` can import that existing Claude setup, but the native context-mode agy bundle above is the supported path for agy hooks.
 - MCP only: add context-mode to `~/.gemini/config/mcp_config.json` under `mcpServers` (`{"command":"context-mode"}`).
 
 **Detection:**
@@ -392,15 +392,18 @@ The standalone Antigravity CLI (`agy`) is the command-line companion to Google A
 - Config-dir markers for a bare shell: `~/.local/bin/agy`, `~/.gemini/antigravity-cli/`, or `~/.gemini/config/mcp_config.json` — probed **before** the generic `~/.claude` / `~/.gemini` fallbacks so a gemini-cli→agy migrant is not mis-detected as Claude Code ([#774](https://github.com/mksglu/context-mode/issues/774))
 - Fallback: `CONTEXT_MODE_PLATFORM=antigravity-cli` override
 
-**Hook payload (verified against agy 1.0.5):** `{ conversationId, stepIdx, toolCall: { name, args }, error, workspacePaths: [..], transcriptPath }`. The event name arrives via argv (set in `hooks.json`), and the hook CWD is `~/.gemini/config`, so the project dir is read from `workspacePaths[0]`. context-mode maps these onto its capture pipeline (`conversationId`→session id, `workspacePaths[0]`→project dir).
+**Hook payload:** `{ conversationId, stepIdx, toolCall: { name, args }, error, workspacePaths: [..], transcriptPath }`. The event name arrives via argv (set in `hooks.json`), and the hook CWD is `~/.gemini/config`, so the project dir is read from `workspacePaths[0]`. context-mode maps these onto its routing/capture pipeline (`conversationId`→session id, `workspacePaths[0]`→project dir, `run_command`→`Bash`, `view_file`→`Read`, `grep_search`→`Grep`, `list_dir`→`LS`, `read_url_content`→`WebFetch`, `search_web`→`WebSearch`).
 
 **Capabilities:**
-- PostToolUse: capture-only (records tool usage into the session DB)
-- PreToolUse / PreCompact / SessionStart: -- (not used)
-- Can modify args / output / inject context: -- (agy honors no hook stdout veto in auto-run mode)
+- PreToolUse: bounded blocking for mapped Bash/Read/Grep/WebFetch surfaces (`run_command`, `view_file`, `grep_search`, `web_fetch`, `read_url_content`)
+- PostToolUse: capture-only (records executed tool calls into the session DB)
+- Stop: best-effort capture-only session-end marker (registered, but not observed in agy `-p` probes)
+- PreCompact / SessionStart / PreInvocation / PostInvocation: -- (not wired)
+- Can modify args / output / inject context: -- (not verified/used)
 
 **Known Issues / Caveats:**
-- **No hook-based enforcement.** agy ignores a PreToolUse stdout veto when tools auto-run (verified), so context-mode does not register a blocking hook — enforcement is the routing skill (~60% compliance). The `PostToolUse` hook is strictly for **capture** (stats/continuity).
+- **Bounded hook enforcement.** context-mode registers PreToolUse only for mapped high-flood tools with existing routing branches. `list_dir` and `search_web` are normalized for PostToolUse capture but are not PreToolUse-routed.
+- `PreInvocation` and `PostInvocation` are visible in agy's hook list but intentionally not registered; agy 1.0.6 `-p` probes did not emit them, and their payload/response semantics are not verified against context-mode's pipeline.
 - agy's `PostToolUse` payload carries no tool-output text, so byte-accounting for tool output is unavailable on this surface; the tool call + project + error state are still captured.
 - Shares `~/.gemini/` with Gemini CLI and Antigravity — session DB uses the project hash to prevent collisions.
 - **Gemini function-calling tool exposure.** agy exposes MCP tools as Gemini function declarations, and Gemini's API rejects JSON Schema `const` / `additionalProperties` — a rejected schema makes agy **silently drop** that tool from the model's function list (the agent then hand-rolls the tool via shell scripts instead of calling it). context-mode emits Gemini-safe tool schemas (`const`→`enum`, `additionalProperties` stripped) so the `ctx_*` tools are exposed. agy also **caches** each server's tool schemas under `~/.gemini/antigravity-cli/mcp/<server>/` and does **not** refresh them on reconnect, so a cache captured by an older context-mode keeps the tools hidden — `npm run install:agy` clears that cache (delete `~/.gemini/antigravity-cli/mcp/context-mode/` by hand if you registered MCP without the installer).
@@ -819,15 +822,15 @@ The hook adapter exists only to satisfy the interface contract — every parser 
 
 | Capability | Claude Code | Qwen Code | Gemini CLI | VS Code Copilot | JetBrains Copilot | GitHub Copilot CLI | Cursor | OpenCode | KiloCode | OpenClaw | Codex CLI | Kimi Code | Antigravity | Antigravity CLI (`agy`) | Kiro | Zed | Pi | OMP |
 |-----------|:-----------:|:---------:|:----------:|:---------------:|:-----------------:|:------------------:|:------:|:--------:|:--------:|:--------:|:---------:|:---------:|:-----------:|:-----------------------:|:----:|:---:|:--:|:---:|
-| PreToolUse | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes*** | Yes | -- | -- | Yes | -- | -- | -- |
+| PreToolUse | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes*** | Yes | -- | Bounded | Yes | -- | -- | -- |
 | PostToolUse | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | -- | Yes (capture-only) | Yes | -- | -- | -- |
 | PreCompact | Yes | Yes | Yes | Yes | Yes | Yes | -- | Yes* | Yes* | Yes | Yes**** | Yes | -- | -- | -- | -- | -- | -- |
 | SessionStart | Yes | Yes | Yes | Yes | Yes | Yes | Yes | -- | -- | Yes | Yes | Yes | -- | -- | -- | -- | -- | -- |
-| Stop | -- | -- | -- | Yes | Yes | Yes | Yes | -- | -- | -- | Yes | Yes | -- | -- | -- | -- | -- | -- |
+| Stop | -- | -- | -- | Yes | Yes | Yes | Yes | -- | -- | -- | Yes | Yes | -- | Best-effort capture | -- | -- | -- | -- |
 | Modify Args | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | -- | Yes | -- | -- | -- | -- | -- | -- |
 | Modify Output | Yes | Yes | Yes | Yes | Yes | No | No | Yes** | Yes** | No | -- | Yes | -- | -- | -- | -- | -- | -- |
 | Inject Context | Yes | Yes | Yes | Yes | Yes | Yes | Yes | -- | -- | Yes | Yes | Yes | -- | -- | -- | -- | -- | -- |
-| Block Tools | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | -- | -- | Yes | -- | -- | -- |
+| Block Tools | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | -- | Bounded | Yes | -- | -- | -- |
 | MCP/native tool support | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Native plugin | Native plugin | Native plugin | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 
 \* OpenCode `experimental.session.compacting` is experimental
@@ -909,9 +912,10 @@ The dispatcher resolves the hook script relative to the installed package and dy
 | `kimi` | `pretooluse`, `posttooluse`, `precompact`, `sessionstart`, `userpromptsubmit`, `stop` |
 | `qwen-code` | `pretooluse`, `posttooluse`, `precompact`, `sessionstart`, `userpromptsubmit` |
 | `copilot-cli` | `pretooluse`, `posttooluse`, `precompact`, `sessionstart`, `userpromptsubmit`, `stop` |
+| `antigravity-cli` | `pretooluse`, `posttooluse`, `stop` |
 | `kiro` | `pretooluse`, `posttooluse` |
 
-OpenCode, KiloCode, and OpenClaw use a TS plugin paradigm (no command dispatcher). Antigravity CLI (`agy`) registers only a capture-only `PostToolUse` hook via its plugin `hooks.json`, not the CLI dispatcher. Pi and OMP register hooks through their own host APIs rather than the CLI dispatcher; Antigravity and Zed are MCP-only (no hooks).
+OpenCode, KiloCode, and OpenClaw use a TS plugin paradigm (no command dispatcher). Pi and OMP register hooks through their own host APIs rather than the CLI dispatcher; Antigravity IDE and Zed are MCP-only (no hooks).
 
 ---
 

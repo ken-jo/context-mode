@@ -51,6 +51,35 @@ describe("vscode-copilot formatter", () => {
   });
 });
 
+describe("antigravity-cli formatter", () => {
+  it("uses agy native top-level deny/ask decisions", () => {
+    expect(formatters["antigravity-cli"].deny("blocked")).toEqual({
+      decision: "deny",
+      reason: "blocked",
+    });
+    expect(formatters["antigravity-cli"].ask("confirm")).toEqual({
+      decision: "ask",
+      reason: "confirm",
+    });
+  });
+
+  it("converts modify redirects into a standard deny without echo parsing", () => {
+    const result = formatters["antigravity-cli"].modify({
+      command: 'echo "use ctx_execute instead"',
+    });
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("context-mode: redirected");
+    expect(result.reason).not.toBe("use ctx_execute instead");
+  });
+
+  it("converts context guidance into deny because agy does not surface PreToolUse additionalContext", () => {
+    const result = formatters["antigravity-cli"].context("<context_guidance>use ctx_execute_file</context_guidance>");
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("context-mode");
+    expect(result.reason).toContain("ctx_execute_file");
+  });
+});
+
 describe("formatDecision integration", () => {
   it("claude-code deny flows through with correct field names", () => {
     const result = formatDecision("claude-code", { action: "deny", reason: "sandbox only" });
@@ -62,5 +91,10 @@ describe("formatDecision integration", () => {
     const result = formatDecision("claude-code", { action: "modify", updatedInput: { command: "echo hi" } });
     expect(result.hookSpecificOutput.permissionDecision).toBe("deny");
     expect(result.hookSpecificOutput.permissionDecisionReason).toBeDefined();
+  });
+
+  it("antigravity-cli WebFetch deny flows through with top-level decision", () => {
+    const result = formatDecision("antigravity-cli", { action: "deny", reason: "fetch elsewhere" });
+    expect(result).toEqual({ decision: "deny", reason: "fetch elsewhere" });
   });
 });

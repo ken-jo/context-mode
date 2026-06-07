@@ -8,5 +8,7 @@
   },
   "homepage": "https://github.com/mksglu/context-mode#readme",
   "license": "Elastic-2.0",
-  "skills": "./skills/"
+  "skills": [
+    "./skills/context-mode"
+  ]
 }

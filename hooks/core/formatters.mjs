@@ -191,6 +191,24 @@ export const formatters = {
     context: () => null, // Kimi HookResult has no additionalContext field
   },
 
+  "antigravity-cli": {
+    // agy PreToolUse accepts the Claude-compatible top-level decision shape.
+    // agy 1.0.6 does NOT honor PreToolUse additionalContext (verified by
+    // transcript probe), so context guidance must become an enforceable deny
+    // or it disappears and the native tool runs unchanged.
+    deny: (reason) => ({ decision: "deny", reason }),
+    ask: (reason) => ({ decision: "ask", ...(reason ? { reason } : {}) }),
+    modify: () => ({
+      decision: "deny",
+      reason:
+        "context-mode: redirected. Use the context-mode MCP tools (ctx_execute / ctx_fetch_and_index / ctx_search) so raw bytes stay out of the conversation.",
+    }),
+    context: (additionalContext) => ({
+      decision: "deny",
+      reason: agyContextReason(additionalContext),
+    }),
+  },
+
   "cursor": {
     deny: (reason) => ({
       permission: "deny",
@@ -207,6 +225,17 @@ export const formatters = {
     }),
   },
 };
+
+function agyContextReason(additionalContext) {
+  const text = String(additionalContext ?? "")
+    .replace(/<\/?context_guidance>/g, " ")
+    .replace(/<\/?tip>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text
+    ? `context-mode: use the context-mode MCP tools instead of this native tool. ${text}`
+    : "context-mode: use the context-mode MCP tools instead of this native tool so raw bytes stay out of the conversation.";
+}
 
 /**
  * Apply a formatter to a normalized routing decision.

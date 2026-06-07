@@ -62,6 +62,8 @@ describe("Issue #539 — Claude Code inside VS Code disambiguation", () => {
     delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS;
     delete process.env.VSCODE_PID;
     delete process.env.VSCODE_CWD;
+    delete process.env.CODEX_THREAD_ID;
+    delete process.env.CODEX_CI;
     delete process.env.CONTEXT_MODE_PLATFORM;
     homedirMock.current = "";
     __resetClaudeCodePluginCacheForTests();

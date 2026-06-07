@@ -8,7 +8,8 @@
  * the openclaw installer, which is genuinely POSIX-only (signals, pgrep, /tmp).
  *
  * The bundle (configs/antigravity-cli/) registers the context-mode MCP server,
- * the routing skill, and a PostToolUse capture hook in one step.
+ * routing rule, routing skill, and bounded PreToolUse/PostToolUse/Stop hooks in
+ * one step.
  *
  * Usage: npm run install:agy   (or: node scripts/install-antigravity-cli-plugin.mjs)
  */
@@ -65,11 +66,12 @@ if (install.status !== 0) {
 }
 
 // MCP is registered by `agy plugin install` above, straight from the bundle's
-// `.mcp.json` (env-pinned CONTEXT_MODE_PLATFORM=antigravity-cli). Verified on agy
-// 1.0.6: it logs "mcpServers : 1 processed" and writes the server into agy's
-// plugin profile (~/.gemini/config/plugins/context-mode/mcp_config.json, env
-// preserved). No separate global-profile write — shipping `.mcp.json` (the
-// .gitignore un-ignore enables exactly this) is what `agy plugin install` reads.
+// native `mcp_config.json` (env-pinned CONTEXT_MODE_PLATFORM=antigravity-cli).
+// Verified on agy 1.0.6: it logs "mcpServers : 1 processed" and writes the
+// server into agy's plugin profile
+// (~/.gemini/config/plugins/context-mode/mcp_config.json, env preserved).
+// agy native validation/install does not read `.mcp.json`; keep the bundle on
+// the single native `mcp_config.json` path to avoid manifest drift.
 
 // agy CACHES each MCP server's tool schemas under
 // ~/.gemini/antigravity-cli/mcp/<server>/ and does NOT refresh them on reconnect
@@ -91,33 +93,34 @@ if (existsSync(agyToolCache)) {
   }
 }
 
-// Probe whether the global `context-mode` understands the antigravity-cli hook.
-// The shipped hook command (`context-mode hook antigravity-cli posttooluse`)
-// resolves the GLOBAL binary at runtime. A context-mode older than the release
-// that added Antigravity CLI support has no `antigravity-cli` HOOK_MAP entry and
-// exits non-zero — and the dispatcher suppresses stderr, so the capture hook
-// would be a SILENT no-op. Detect that here and tell the user instead.
-let captureOk = false;
+// Probe whether the global `context-mode` understands the antigravity-cli hooks.
+// The shipped hook commands resolve the GLOBAL binary at runtime. A context-mode
+// older than the release that added Antigravity CLI support may have no
+// `antigravity-cli` HOOK_MAP entry, and the dispatcher suppresses stderr, so the
+// hooks would be a SILENT no-op. Detect that here and tell the user instead.
+let hooksOk = false;
 if (hasContextMode) {
-  const probe = spawnSync("context-mode hook antigravity-cli posttooluse", {
-    input: "{}",
-    stdio: ["pipe", "ignore", "ignore"],
-    shell: true,
+  hooksOk = ["pretooluse", "posttooluse", "stop"].every((event) => {
+    const probe = spawnSync(`context-mode hook antigravity-cli ${event}`, {
+      input: "{}",
+      stdio: ["pipe", "ignore", "ignore"],
+      shell: true,
+    });
+    return probe.status === 0;
   });
-  captureOk = probe.status === 0;
 }
 
 console.log("");
 // Confirm `agy plugin install` actually registered the MCP from the bundle's
-// .mcp.json (it writes it into agy's plugin profile). If a future agy build skips
-// it, fall back to a one-line manual instruction rather than silently leaving MCP
-// unconfigured — never re-introduce a blind global-profile write.
+// MCP config (it writes it into agy's plugin profile). If a future agy build
+// skips it, fall back to a one-line manual instruction rather than silently
+// leaving MCP unconfigured — never re-introduce a blind global-profile write.
 const pluginMcp = join(homedir(), ".gemini", "config", "plugins", "context-mode", "mcp_config.json");
 if (existsSync(pluginMcp)) {
-  console.log("✓ Installed the context-mode agy plugin: MCP server + routing skill + capture hook.");
-  console.log(`  MCP registered from the bundle's .mcp.json → ${pluginMcp}`);
+  console.log("✓ Installed the context-mode agy plugin: MCP server + routing rule + routing skill + hooks.");
+  console.log(`  MCP registered from the bundle's mcp_config.json → ${pluginMcp}`);
 } else {
-  console.log("✓ Installed the context-mode agy plugin: routing skill + capture hook.");
+  console.log("✓ Installed the context-mode agy plugin: routing rule + routing skill + hooks.");
   console.error("⚠ MCP server not found in agy's plugin profile. If ctx_* tools don't appear, add");
   console.error('    { "mcpServers": { "context-mode": { "command": "context-mode" } } }');
   console.error("  to ~/.gemini/config/mcp_config.json and restart agy.");
@@ -125,12 +128,12 @@ if (existsSync(pluginMcp)) {
 if (cacheCleared) {
   console.log("✓ Cleared agy's stale tool-schema cache — agy re-fetches Gemini-safe schemas on next launch.");
 }
-if (captureOk) {
-  console.log("✓ PostToolUse capture hook is ACTIVE (this context-mode supports antigravity-cli).");
+if (hooksOk) {
+  console.log("✓ Antigravity CLI hooks are ACTIVE (this context-mode supports antigravity-cli).");
 } else {
-  console.error("⚠ PostToolUse capture hook is INACTIVE: your global 'context-mode' is missing or too old");
-  console.error("  to handle 'context-mode hook antigravity-cli'. MCP tools + the routing skill still work.");
-  console.error("  Enable capture with:  npm install -g context-mode@latest");
+  console.error("⚠ Antigravity CLI hooks may be INACTIVE: your global 'context-mode' is missing or too old");
+  console.error("  to handle 'context-mode hook antigravity-cli'. MCP tools + the routing rule + routing skill still work.");
+  console.error("  Enable hook enforcement/capture with:  npm install -g context-mode@latest");
 }
 console.log("");
 console.log("  Restart agy, then verify:");

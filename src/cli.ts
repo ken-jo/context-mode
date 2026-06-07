@@ -128,12 +128,13 @@ const HOOK_MAP: Record<string, Record<string, string>> = {
     userpromptsubmit: "hooks/copilot-cli/userpromptsubmit.mjs",
     stop: "hooks/copilot-cli/stop.mjs",
   },
-  // Antigravity CLI (`agy`) — capture-only (agy honors no stdout veto in
-  // auto-run mode). Only PostToolUse is wired: it records tool usage into the
-  // session DB. Configured via an installed agy plugin's hooks/hooks.json or
-  // ~/.gemini/config/hooks.json.
+  // Antigravity CLI (`agy`) — bounded PreToolUse enforcement plus capture-only
+  // PostToolUse/Stop hooks. Configured via an installed agy plugin's
+  // hooks/hooks.json or ~/.gemini/config/hooks.json.
   "antigravity-cli": {
+    pretooluse: "hooks/antigravity-cli/pretooluse.mjs",
     posttooluse: "hooks/antigravity-cli/posttooluse.mjs",
+    stop: "hooks/antigravity-cli/stop.mjs",
   },
   "kimi": {
     pretooluse: "hooks/kimi/pretooluse.mjs",

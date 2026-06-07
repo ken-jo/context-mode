@@ -13,10 +13,9 @@ import "../ensure-deps.mjs";
  *
  * The event name arrives as argv (set in hooks.json), NOT in the payload, and
  * the hook CWD is ~/.gemini/config — so the project dir MUST come from
- * workspacePaths[0], never process.cwd(). agy does NOT honor a stdout veto in
- * auto-run mode, so this hook is CAPTURE-ONLY (records the tool event; never
- * blocks). We translate agy's payload into the Claude-shaped `input` the shared
- * extractor/attribution pipeline consumes, then reuse it unchanged.
+ * workspacePaths[0], never process.cwd(). We translate agy's payload into the
+ * Claude-shaped `input` the shared extractor/attribution pipeline consumes,
+ * then reuse it unchanged. This hook is capture-only and emits no stdout.
  */
 
 import {
@@ -27,42 +26,18 @@ import {
   ANTIGRAVITY_CLI_OPTS,
 } from "../session-helpers.mjs";
 import { createSessionLoaders, attributeAndInsertEvents } from "../session-loaders.mjs";
-import { dirname } from "node:path";
+import { readFileSync, unlinkSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { fromAgy, parseAgyPayload } from "./payload.mjs";
 
 const HOOK_DIR = dirname(fileURLToPath(import.meta.url));
 const { loadSessionDB, loadExtract, loadProjectAttribution } = createSessionLoaders(HOOK_DIR);
 const OPTS = ANTIGRAVITY_CLI_OPTS;
 
-/** Map agy's hook payload onto the Claude-shaped input the pipeline expects. */
-function fromAgy(payload) {
-  const toolCall = payload?.toolCall ?? {};
-  return {
-    session_id: payload?.conversationId,
-    transcript_path: payload?.transcriptPath,
-    cwd:
-      Array.isArray(payload?.workspacePaths) && payload.workspacePaths.length > 0
-        ? String(payload.workspacePaths[0])
-        : undefined,
-    tool_name: toolCall.name ?? "",
-    tool_input: toolCall.args ?? {},
-    // agy's PostToolUse payload carries no tool-output text, only an error
-    // string ("" on success). Capture the call + error state; byte-accounting
-    // for output is not available on this surface.
-    tool_response: typeof payload?.error === "string" ? payload.error : "",
-    tool_output: { isError: typeof payload?.error === "string" && payload.error.length > 0 },
-  };
-}
-
 try {
-  const raw = await readStdin();
-  let payload = {};
-  try {
-    payload = JSON.parse(raw);
-  } catch {
-    payload = {};
-  }
-  const input = fromAgy(payload);
+  const input = fromAgy(parseAgyPayload(await readStdin()));
 
   if (input.tool_name) {
     const projectDir = getInputProjectDir(input, OPTS);
@@ -86,10 +61,78 @@ try {
 
     const events = extractEvents(normalizedInput);
     attributeAndInsertEvents(db, sessionId, events, input, projectDir, "PostToolUse", resolveProjectAttributions);
+
+    try {
+      const rejectedPath = resolve(tmpdir(), `context-mode-rejected-${sessionId}.txt`);
+      let rejectedData;
+      try {
+        rejectedData = readFileSync(rejectedPath, "utf-8").trim();
+        unlinkSync(rejectedPath);
+      } catch { /* no marker */ }
+      if (rejectedData) {
+        const colonIdx = rejectedData.indexOf(":");
+        const rejTool = colonIdx > 0 ? rejectedData.slice(0, colonIdx) : rejectedData;
+        const rejReason = colonIdx > 0 ? rejectedData.slice(colonIdx + 1) : "denied";
+        attributeAndInsertEvents(
+          db,
+          sessionId,
+          [{
+            type: "rejected",
+            category: "rejected-approach",
+            data: `${rejTool}: ${rejReason}`,
+            priority: 2,
+          }],
+          input,
+          projectDir,
+          "PreToolUse",
+          resolveProjectAttributions,
+        );
+      }
+    } catch { /* best-effort */ }
+
+    try {
+      const redirectPath = resolve(tmpdir(), `context-mode-redirect-${sessionId}.txt`);
+      let redirectData;
+      try {
+        redirectData = readFileSync(redirectPath, "utf-8").trim();
+        unlinkSync(redirectPath);
+      } catch { /* no marker */ }
+
+      if (redirectData) {
+        const i1 = redirectData.indexOf(":");
+        const i2 = i1 >= 0 ? redirectData.indexOf(":", i1 + 1) : -1;
+        const i3 = i2 >= 0 ? redirectData.indexOf(":", i2 + 1) : -1;
+        if (i1 > 0 && i2 > i1 && i3 > i2) {
+          const tool = redirectData.slice(0, i1);
+          const type = redirectData.slice(i1 + 1, i2);
+          const bytesRaw = redirectData.slice(i2 + 1, i3);
+          const summary = redirectData.slice(i3 + 1);
+          const bytesAvoided = Number.parseInt(bytesRaw, 10);
+          if (Number.isFinite(bytesAvoided) && bytesAvoided > 0) {
+            attributeAndInsertEvents(
+              db,
+              sessionId,
+              [{
+                type,
+                category: "redirect",
+                data: `${tool}: ${summary}`,
+                priority: 2,
+                bytes_avoided: bytesAvoided,
+              }],
+              input,
+              projectDir,
+              "PreToolUse",
+              resolveProjectAttributions,
+            );
+          }
+        }
+      }
+    } catch { /* best-effort */ }
+
     db.close();
   }
 } catch {
   // Swallow errors — a hook must never fail the host agent.
 }
 
-// agy ignores hook stdout in auto-run mode; emit nothing (capture-only).
+// Capture-only hook: emit nothing.

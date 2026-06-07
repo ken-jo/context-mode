@@ -1,6 +1,5 @@
 import "../setup-home";
 import { describe, it, expect, beforeEach } from "vitest";
-import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -163,9 +162,58 @@ describe("AntigravityCliAdapter", () => {
     adapter = new AntigravityCliAdapter();
   });
 
-  it("name is Antigravity CLI and paradigm is mcp-only", () => {
+  it("name is Antigravity CLI and paradigm is json-stdio", () => {
     expect(adapter.name).toBe("Antigravity CLI");
-    expect(adapter.paradigm).toBe("mcp-only");
+    expect(adapter.paradigm).toBe("json-stdio");
+  });
+
+  it("declares bounded PreToolUse/PostToolUse hook capabilities", () => {
+    expect(adapter.capabilities.preToolUse).toBe(true);
+    expect(adapter.capabilities.postToolUse).toBe(true);
+    expect(adapter.capabilities.preCompact).toBe(false);
+    expect(adapter.capabilities.sessionStart).toBe(false);
+    expect(adapter.capabilities.canModifyArgs).toBe(false);
+    expect(adapter.capabilities.canModifyOutput).toBe(false);
+    expect(adapter.capabilities.canInjectSessionContext).toBe(false);
+  });
+
+  it("parses agy hook payloads into normalized events", () => {
+    const payload = {
+      conversationId: "conv-1",
+      workspacePaths: ["C:/repo"],
+      toolCall: { name: "run_command", args: { CommandLine: "git status" } },
+      error: "failed",
+    };
+
+    expect(adapter.parsePreToolUseInput(payload)).toMatchObject({
+      toolName: "run_command",
+      toolInput: { CommandLine: "git status" },
+      sessionId: "conv-1",
+      projectDir: "C:/repo",
+    });
+    expect(adapter.parsePostToolUseInput(payload)).toMatchObject({
+      toolName: "run_command",
+      toolInput: { CommandLine: "git status" },
+      toolOutput: "failed",
+      isError: true,
+      sessionId: "conv-1",
+      projectDir: "C:/repo",
+    });
+  });
+
+  it("formats agy PreToolUse responses with the native top-level decision contract", () => {
+    expect(adapter.formatPreToolUseResponse({ decision: "deny", reason: "blocked" })).toEqual({
+      decision: "deny",
+      reason: "blocked",
+    });
+    expect(adapter.formatPreToolUseResponse({ decision: "ask", reason: "confirm" })).toEqual({
+      decision: "ask",
+      reason: "confirm",
+    });
+    expect(adapter.formatPreToolUseResponse({ decision: "context", additionalContext: "note" })).toEqual({
+      decision: "deny",
+      reason: "context-mode: use the context-mode MCP tools instead of this native tool. note",
+    });
   });
 
   it("settings path is ~/.gemini/config/mcp_config.json", () => {
@@ -212,17 +260,24 @@ describe("AntigravityCliAdapter", () => {
     expect(antigravityCliHooksPath()).toBe(resolve(homedir(), ".gemini", "config", "hooks.json"));
   });
 
-  it("configureAllHooks writes a capture-only PostToolUse hook, idempotently", () => {
+  it("configureAllHooks writes PreToolUse/PostToolUse/Stop hooks, idempotently", () => {
     rmSync(antigravityCliHooksPath(), { force: true });
 
     const changes = adapter.configureAllHooks("/plugin/root");
     expect(changes.length).toBeGreaterThan(0);
 
     const cfg = JSON.parse(readFileSync(antigravityCliHooksPath(), "utf-8")) as {
-      hooks: { PostToolUse: Array<{ hooks: Array<{ command: string }> }> };
+      hooks: Record<string, Array<{ matcher: string; hooks: Array<{ command: string }> }>>;
     };
+    expect(cfg.hooks.PreToolUse[0].matcher).toBe("run_command|view_file|grep_search|web_fetch|read_url_content");
+    expect(cfg.hooks.PreToolUse[0].hooks[0].command).toBe(
+      "context-mode hook antigravity-cli pretooluse",
+    );
     expect(cfg.hooks.PostToolUse[0].hooks[0].command).toBe(
       "context-mode hook antigravity-cli posttooluse",
+    );
+    expect(cfg.hooks.Stop[0].hooks[0].command).toBe(
+      "context-mode hook antigravity-cli stop",
     );
 
     // Second run sees no drift.
@@ -235,15 +290,19 @@ describe("AntigravityCliAdapter", () => {
     // Hand-add an unrelated hook, then reconfigure — it must survive.
     const path = antigravityCliHooksPath();
     const cfg = JSON.parse(readFileSync(path, "utf-8"));
-    cfg.hooks.Stop = [{ matcher: "", hooks: [{ type: "command", command: "echo bye" }] }];
+    cfg.hooks.SessionStart = [{ matcher: "", hooks: [{ type: "command", command: "echo start" }] }];
+    cfg.hooks.PreToolUse.push({ matcher: "other_tool", hooks: [{ type: "command", command: "echo pre" }] });
     writeFileSync(path, JSON.stringify(cfg));
     adapter.configureAllHooks("/plugin/root");
     const after = JSON.parse(readFileSync(path, "utf-8"));
-    expect(after.hooks.Stop).toBeDefined();
+    expect(after.hooks.SessionStart).toBeDefined();
+    expect(JSON.stringify(after.hooks.PreToolUse)).toContain("echo pre");
+    expect(JSON.stringify(after.hooks.PreToolUse)).toContain("antigravity-cli pretooluse");
     expect(after.hooks.PostToolUse[0].hooks[0].command).toContain("antigravity-cli posttooluse");
+    expect(after.hooks.Stop[0].hooks[0].command).toContain("antigravity-cli stop");
   });
 
-  it("validateHooks warns until the capture hook is configured, then passes (capture-only)", () => {
+  it("validateHooks warns until all agy hooks are configured, then passes", () => {
     rmSync(antigravityCliHooksPath(), { force: true });
     rmSync(join(antigravityCliPluginDir(), "hooks.json"), { force: true });
     const before = adapter.validateHooks("/plugin/root");
@@ -252,10 +311,10 @@ describe("AntigravityCliAdapter", () => {
     adapter.configureAllHooks("/plugin/root");
     const after = adapter.validateHooks("/plugin/root");
     expect(after[0].status).toBe("pass");
-    expect(after[0].message).toContain("capture-only");
+    expect(after[0].message).toContain("PreToolUse guard");
   });
 
-  it("validateHooks PASSES when the capture hook is in the plugin profile (agy plugin install)", () => {
+  it("validateHooks PASSES when PreToolUse/PostToolUse are in the plugin profile (Stop is best-effort)", () => {
     // B: `agy plugin install` writes the hook to ~/.gemini/config/plugins/
     // context-mode/hooks.json — not the global hooks.json. doctor must recognize it.
     rmSync(antigravityCliHooksPath(), { force: true });
@@ -265,6 +324,9 @@ describe("AntigravityCliAdapter", () => {
       pluginHooks,
       JSON.stringify({
         hooks: {
+          PreToolUse: [
+            { matcher: "run_command|view_file|grep_search|web_fetch|read_url_content", hooks: [{ type: "command", command: "context-mode hook antigravity-cli pretooluse" }] },
+          ],
           PostToolUse: [
             { matcher: "", hooks: [{ type: "command", command: "context-mode hook antigravity-cli posttooluse" }] },
           ],
@@ -281,35 +343,26 @@ describe("AntigravityCliAdapter", () => {
  * Guards the shipped agy plugin bundle (configs/antigravity-cli/), which users
  * install with `npm run install:agy` (→ `agy plugin install configs/antigravity-cli`).
  *
- * agy's plugin system is Claude-compatible: it reads `.claude-plugin/plugin.json`
- * for identity + skills, a root `.mcp.json` for MCP servers, and `hooks/hooks.json`
- * for hooks. Verified on agy 1.0.6: `agy plugin install` with a bundle `.mcp.json`
- * logs "mcpServers : 1 processed" and registers the server — env preserved — into
- * ~/.gemini/config/plugins/<name>/mcp_config.json. So MCP + skill + capture hook
- * all register in ONE command; the installer no longer writes a global MCP profile.
+ * agy's native plugin system reads the root `plugin.json` + `mcp_config.json`
+ * shape. Verified on agy 1.0.6: `agy plugin install` logs "mcpServers : 1
+ * processed" and registers the server — env preserved — into
+ * ~/.gemini/config/plugins/<name>/mcp_config.json. `.mcp.json` and
+ * `.claude-plugin/plugin.json` are intentionally not shipped here because agy
+ * native validate/install does not read them.
  *
- * Like the Copilot bundle, this `.mcp.json` IS committed (a plugin has no other
- * way to declare MCP) — .gitignore un-ignores exactly configs/antigravity-cli/.mcp.json.
+ * Like the Copilot bundle, the MCP config is committed in the plugin bundle
+ * rather than generated during install.
  */
 const AGY_PLUGIN = resolve(__dirname, "..", "..", "configs", "antigravity-cli");
 const AGY_REPO_ROOT = resolve(__dirname, "..", "..");
 
 describe("configs/antigravity-cli — agy plugin bundle", () => {
-  it("ships a COMMITTED .mcp.json (git must not ignore it) pinned to antigravity-cli", () => {
-    const mcpPath = resolve(AGY_PLUGIN, ".mcp.json");
+  it("ships native agy plugin.json + mcp_config.json pinned to antigravity-cli", () => {
+    const manifest = JSON.parse(readFileSync(resolve(AGY_PLUGIN, "plugin.json"), "utf-8"));
+    expect(manifest.name).toBe("context-mode");
+    expect(manifest.skills).toContain("./skills/context-mode");
+    const mcpPath = resolve(AGY_PLUGIN, "mcp_config.json");
     expect(existsSync(mcpPath)).toBe(true);
-    // The repo-wide `.mcp.json` ignore must be negated for this path, or the
-    // bundle ships with no MCP and `agy plugin install` registers none.
-    let ignored = "";
-    try {
-      ignored = execFileSync("git", ["check-ignore", "configs/antigravity-cli/.mcp.json"], {
-        cwd: AGY_REPO_ROOT,
-        encoding: "utf-8",
-      }).trim();
-    } catch {
-      // `git check-ignore` exits non-zero (no output) when NOT ignored — desired.
-    }
-    expect(ignored).toBe("");
     const mcp = JSON.parse(readFileSync(mcpPath, "utf-8"));
     const server = mcp.mcpServers?.["context-mode"];
     expect(server?.command).toBe("context-mode");
@@ -319,34 +372,72 @@ describe("configs/antigravity-cli — agy plugin bundle", () => {
     expect(server?.env?.CONTEXT_MODE_PLATFORM).toBe("antigravity-cli");
   });
 
-  it("manifest declares name + the skills dir (no mcpServers — .mcp.json owns MCP)", () => {
-    const manifest = JSON.parse(readFileSync(resolve(AGY_PLUGIN, ".claude-plugin", "plugin.json"), "utf-8"));
-    expect(manifest.name).toBe("context-mode");
-    // The routing skill is agy's ONLY enforcement (capture-only hooks, no veto).
-    expect(manifest.skills).toBe("./skills/");
-    // MCP lives in .mcp.json now, not duplicated in the manifest (agy plugin
-    // install reads MCP from .mcp.json, not the manifest's mcpServers).
-    expect(manifest.mcpServers).toBeUndefined();
+  it("root hooks.json wires only mapped agy hook dispatchers", () => {
+    const hooks = JSON.parse(readFileSync(resolve(AGY_PLUGIN, "hooks.json"), "utf-8"));
+    // agy 1.0.6 runtime loads installed plugin root hooks.json, while
+    // validate/install only reports hooks when the bundle also has hooks/hooks.json.
+    // Keep both files identical until agy converges on one path.
+    expect(JSON.parse(readFileSync(resolve(AGY_PLUGIN, "hooks", "hooks.json"), "utf-8"))).toEqual(hooks);
+    const pre = hooks.hooks?.PreToolUse?.[0];
+    const post = hooks.hooks?.PostToolUse?.[0]?.hooks?.[0];
+    const stop = hooks.hooks?.Stop?.[0]?.hooks?.[0];
+    expect(pre?.matcher).toBe("run_command|view_file|grep_search|web_fetch|read_url_content");
+    expect(pre?.hooks?.[0]?.command).toBe("context-mode hook antigravity-cli pretooluse");
+    expect(post?.type).toBe("command");
+    expect(post?.command).toBe("context-mode hook antigravity-cli posttooluse");
+    expect(stop?.type).toBe("command");
+    expect(stop?.command).toBe("context-mode hook antigravity-cli stop");
+    // Do not over-map invocation hooks until agy payload/response semantics are verified.
+    expect(hooks.hooks?.PreInvocation).toBeUndefined();
+    expect(hooks.hooks?.PostInvocation).toBeUndefined();
   });
 
-  it("hooks/hooks.json wires the capture-only PostToolUse dispatcher", () => {
-    const hooks = JSON.parse(readFileSync(resolve(AGY_PLUGIN, "hooks", "hooks.json"), "utf-8"));
-    const entry = hooks.hooks?.PostToolUse?.[0]?.hooks?.[0];
-    expect(entry?.type).toBe("command");
-    expect(entry?.command).toBe("context-mode hook antigravity-cli posttooluse");
-    // capture-only: no PreToolUse (agy honors no stdout veto in auto-run mode)
-    expect(hooks.hooks?.PreToolUse).toBeUndefined();
+  it("ships agy-native routing rules", () => {
+    const rulePath = resolve(AGY_PLUGIN, "rules", "context-mode.md");
+    expect(existsSync(rulePath)).toBe(true);
+    const rule = readFileSync(rulePath, "utf-8");
+    expect(rule).toContain("context-mode/ctx_execute");
+    expect(rule).toContain("call_mcp_tool");
+    expect(rule).toContain("Do not read `~/.gemini/antigravity-cli/mcp/context-mode/*.json`");
+    expect(rule).toContain("there is no separate `ctx_read` tool");
+    expect(rule).toContain("`context-mode/ctx_execute_file` is the context-mode file-read surface");
+    expect(rule).toContain("Never print");
+    expect(rule).toContain("`FILE_CONTENT` wholesale");
+    expect(rule).toContain("Use `context-mode/ctx_index` only when content should be stored and searched");
   });
 
-  it("ships the routing skill", () => {
-    expect(existsSync(resolve(AGY_PLUGIN, "skills", "context-mode", "SKILL.md"))).toBe(true);
-    const skill = readFileSync(resolve(AGY_PLUGIN, "skills", "context-mode", "SKILL.md"), "utf-8");
+  it("ships an agy-native routing skill with the fixed tool list", () => {
+    const skillPath = resolve(AGY_PLUGIN, "skills", "context-mode", "SKILL.md");
+    expect(existsSync(skillPath)).toBe(true);
+    const skill = readFileSync(skillPath, "utf-8");
     expect(skill).toContain("name: context-mode");
-    expect(skill).toMatch(/ctx_execute|ctx_batch_execute/);
+    expect(skill).toContain("context-mode/ctx_execute_file");
+    expect(skill).toContain("There is no separate `ctx_read` tool");
+    expect(skill).toContain("When the user asks \"what context-mode tools are available\"");
+    expect(skill).toContain("Do not list `~/.gemini/antigravity-cli/mcp/context-mode`");
+    expect(skill).toContain("Never print `FILE_CONTENT` wholesale");
+    for (const tool of [
+      "ctx_execute",
+      "ctx_execute_file",
+      "ctx_batch_execute",
+      "ctx_index",
+      "ctx_search",
+      "ctx_fetch_and_index",
+      "ctx_stats",
+      "ctx_doctor",
+      "ctx_upgrade",
+      "ctx_purge",
+      "ctx_insight",
+    ]) {
+      expect(skill).toContain(`context-mode/${tool}`);
+    }
   });
 
   it("the dispatched hook script exists", () => {
+    expect(existsSync(resolve(__dirname, "..", "..", "hooks", "antigravity-cli", "pretooluse.mjs"))).toBe(true);
     expect(existsSync(resolve(__dirname, "..", "..", "hooks", "antigravity-cli", "posttooluse.mjs"))).toBe(true);
+    expect(existsSync(resolve(__dirname, "..", "..", "hooks", "antigravity-cli", "stop.mjs"))).toBe(true);
+    expect(existsSync(resolve(__dirname, "..", "..", "hooks", "antigravity-cli", "payload.mjs"))).toBe(true);
   });
 
   it("ships the npm run install:agy one-command installer (cross-platform Node)", () => {

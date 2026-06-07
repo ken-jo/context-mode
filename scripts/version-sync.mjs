@@ -33,7 +33,7 @@ const targets = [
   // `agy plugin install configs/antigravity-cli`. Without this entry it would
   // freeze at its pinned version on the next bump (cf. the .cursor-plugin
   // v1.0.111 drift the version-sync test guards against).
-  "configs/antigravity-cli/.claude-plugin/plugin.json",
+  "configs/antigravity-cli/plugin.json",
   // GitHub Copilot CLI plugin bundle manifest — installed via
   // `copilot plugin install <repo>:configs/copilot-cli`. Same drift guard as
   // the agy bundle above: without this it freezes at its pinned version on the

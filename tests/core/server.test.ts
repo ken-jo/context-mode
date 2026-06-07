@@ -1266,6 +1266,8 @@ describe("ctx_index: projectRoot path resolution (#365)", () => {
     delete cleanEnv.OPENCODE_PROJECT_DIR;
     delete cleanEnv.PI_PROJECT_DIR;
     delete cleanEnv.PI_WORKSPACE_DIR;
+    delete cleanEnv.CODEX_THREAD_ID;
+    delete cleanEnv.CODEX_CI;
     delete cleanEnv.CONTEXT_MODE_PROJECT_DIR;
 
     const proc = spawn("node", [buildEntry], {

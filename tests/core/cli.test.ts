@@ -35,8 +35,8 @@ describe("hook dispatch fails OPEN on a missing hook (version-skew brick fix)", 
   });
 
   it("exits 0 for a known platform with an unmapped event", () => {
-    // antigravity-cli only maps posttooluse — pretooluse is intentionally absent.
-    const r = spawnSync("node", [CLI, "hook", "antigravity-cli", "pretooluse"], {
+    // antigravity-cli maps PreToolUse/PostToolUse/Stop, but not PreCompact.
+    const r = spawnSync("node", [CLI, "hook", "antigravity-cli", "precompact"], {
       input: "{}",
       encoding: "utf-8",
     });

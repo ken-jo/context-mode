@@ -34,8 +34,8 @@ describe("scripts/version-sync.mjs targets", () => {
     expect(SCRIPT_SRC).toContain('".codex-plugin/plugin.json"');
   });
 
-  it("includes configs/antigravity-cli/.claude-plugin/plugin.json (agy bundle)", () => {
-    expect(SCRIPT_SRC).toContain('"configs/antigravity-cli/.claude-plugin/plugin.json"');
+  it("includes configs/antigravity-cli/plugin.json (agy native bundle)", () => {
+    expect(SCRIPT_SRC).toContain('"configs/antigravity-cli/plugin.json"');
   });
 
   it("includes configs/copilot-cli/.github/plugin/plugin.json (Copilot CLI bundle)", () => {
@@ -61,8 +61,8 @@ describe("package.json `version` script `git add` list", () => {
     expect(PKG_JSON.scripts.version).toContain(".codex-plugin/plugin.json");
   });
 
-  it("includes configs/antigravity-cli/.claude-plugin/plugin.json (agy bundle)", () => {
-    expect(PKG_JSON.scripts.version).toContain("configs/antigravity-cli/.claude-plugin/plugin.json");
+  it("includes configs/antigravity-cli/plugin.json (agy native bundle)", () => {
+    expect(PKG_JSON.scripts.version).toContain("configs/antigravity-cli/plugin.json");
   });
 
   it("includes configs/copilot-cli/.github/plugin/plugin.json (Copilot CLI bundle)", () => {
@@ -96,7 +96,7 @@ describe("shipped manifests are in lockstep with package.json", () => {
     ".openclaw-plugin/package.json",
     "openclaw.plugin.json",
     ".pi/extensions/context-mode/package.json",
-    "configs/antigravity-cli/.claude-plugin/plugin.json",
+    "configs/antigravity-cli/plugin.json",
     "configs/copilot-cli/.github/plugin/plugin.json",
   ];
   for (const manifest of SHIPPED) {
@@ -126,7 +126,7 @@ describe("version-sync end-to-end", () => {
         ".codex-plugin",
         ".openclaw-plugin",
         ".pi/extensions/context-mode",
-        "configs/antigravity-cli/.claude-plugin",
+        "configs/antigravity-cli",
         "configs/copilot-cli/.github/plugin",
         "scripts",
       ];
@@ -144,7 +144,7 @@ describe("version-sync end-to-end", () => {
         ".openclaw-plugin/package.json",
         "openclaw.plugin.json",
         ".pi/extensions/context-mode/package.json",
-        "configs/antigravity-cli/.claude-plugin/plugin.json",
+        "configs/antigravity-cli/plugin.json",
         "configs/copilot-cli/.github/plugin/plugin.json",
       ];
       for (const m of manifests) {

@@ -864,11 +864,11 @@ Full configs: [`configs/antigravity/mcp_config.json`](configs/antigravity/mcp_co
 </details>
 
 <details>
-<summary><strong>Antigravity CLI (<code>agy</code>)</strong> — plugin (MCP + skill + capture hook)</summary>
+<summary><strong>Antigravity CLI (<code>agy</code>)</strong> — plugin (MCP + skill + hooks)</summary>
 
 **Prerequisites:** Node.js >= 22.5 (or Bun), Antigravity CLI (`agy`) installed.
 
-`agy` has a Claude-compatible **plugin** system, so context-mode installs as a first-class agy plugin that bundles the MCP server, a routing skill, and a capture hook in one step.
+`agy` has a native **plugin** system, so context-mode installs as a first-class agy plugin that bundles the MCP server, a routing rule, a routing skill, and bounded hooks in one step.
 
 **Install** (same one-command pattern as OpenClaw — the script resolves the bundle path for you):
 
@@ -886,11 +886,13 @@ Full configs: [`configs/antigravity/mcp_config.json`](configs/antigravity/mcp_co
    npm run install:agy
    ```
 
-   `npm run install:agy` runs `agy plugin install` on the bundle at `configs/antigravity-cli/` — registering the MCP server, the routing skill, and the `PostToolUse` capture hook — then clears agy's stale tool-schema cache so the `ctx_*` tools appear in the model's tool list (agy caches MCP schemas and doesn't refresh them; an old cache hides the tools). The installer is cross-platform Node (runs natively on Windows, macOS, and Linux — no bash required). Restart `agy`.
+   `npm run install:agy` runs `agy plugin install` on the bundle at `configs/antigravity-cli/` — registering the MCP server from the bundle's native `mcp_config.json`, the routing rule, routing skill, bounded `PreToolUse`, `PostToolUse` capture, and best-effort `Stop` capture hooks — then clears agy's stale tool-schema cache so the `ctx_*` tools appear in the model's tool list (agy caches MCP schemas and doesn't refresh them; an old cache hides the tools). The installer is cross-platform Node (runs natively on Windows, macOS, and Linux — no bash required). Restart `agy`.
 
-> **Capture-hook version note:** the `PostToolUse` capture hook runs the **global** `context-mode` binary (`context-mode hook antigravity-cli posttooluse`), so it needs a context-mode version with Antigravity CLI support. On an older global the **MCP server + routing skill still work**, but session capture is inert — the installer probes for this and prints a warning if your global is too old (upgrade with `npm install -g context-mode@latest`). To remove the plugin later: `agy plugin uninstall context-mode`.
+   agy's native validation path expects root `plugin.json` + `mcp_config.json`; the bundle intentionally uses that single manifest shape.
 
-> **Already using context-mode in Claude Code?** `agy plugin import claude` pulls in the MCP server + skill without a clone (the bundle above also adds the capture hook).
+> **Hook version note:** the agy hooks run the **global** `context-mode` binary (`context-mode hook antigravity-cli <event>`), so they need a context-mode version with Antigravity CLI hook support. On an older global the **MCP server + routing rule + routing skill still work**, but hook enforcement/capture may be inert — the installer probes for this and prints a warning if your global is too old (upgrade with `npm install -g context-mode@latest`). To remove the plugin later: `agy plugin uninstall context-mode`.
+
+> **Already using context-mode in Claude Code?** `agy plugin import claude` can import that existing Claude setup, but the native context-mode agy bundle above is the supported path for agy hooks.
 
 **Verify:** `agy -p "Use the context-mode ctx_execute MCP tool to compute 7 + 5. Answer only the number." --dangerously-skip-permissions` should print `12`.
 
@@ -900,7 +902,7 @@ Full configs: [`configs/antigravity/mcp_config.json`](configs/antigravity/mcp_co
 { "mcpServers": { "context-mode": { "command": "context-mode" } } }
 ```
 
-**Routing & capture:** Enforcement is the routing skill (`~60%` compliance) — agy honors no PreToolUse stdout veto in auto-run mode, so context-mode does **not** claim to block tools on agy. The `PostToolUse` hook is **capture-only**: it records tool usage into context-mode's session DB under `~/.gemini/context-mode/sessions/`. Auto-detected via MCP `clientInfo.name` (`agy`) or, in a bare shell, the `~/.local/bin/agy` / `~/.gemini/config/mcp_config.json` markers — probed before the generic `~/.claude` fallback so a gemini-cli→agy migrant is not mis-detected as Claude Code ([#774](https://github.com/mksglu/context-mode/issues/774)).
+**Routing & capture:** The routing rule plus routing skill provide the durable instruction layer, and bounded `PreToolUse` enforcement blocks mapped high-flood tools before execution (`run_command`, `view_file`, `grep_search`, `web_fetch`, `read_url_content`). `PostToolUse` records executed tool calls into `~/.gemini/context-mode/sessions/` and normalizes agy basics (`run_command`, `view_file`, `grep_search`, `list_dir`, `read_url_content`, `search_web`) onto context-mode's canonical tool names; `list_dir` and `search_web` are capture-only because context-mode has no LS/WebSearch PreToolUse routing branch. `Stop` is registered as best-effort session-end capture, but agy `-p` probes have not emitted it. `PreInvocation` and `PostInvocation` are intentionally not registered until agy's payload/response contract is verified for context-mode's pipeline. Auto-detected via MCP `clientInfo.name` (`agy`) or, in a bare shell, the `~/.local/bin/agy` / `~/.gemini/config/mcp_config.json` markers — probed before the generic `~/.claude` fallback so a gemini-cli→agy migrant is not mis-detected as Claude Code ([#774](https://github.com/mksglu/context-mode/issues/774)).
 
 </details>
 
@@ -1375,12 +1377,12 @@ Tool call output can be collapsed/expanded with the default Pi's default keybind
 | Feature | Claude Code | Qwen Code | Gemini CLI | VS Code Copilot | JetBrains Copilot | GitHub Copilot CLI | Cursor | OpenCode | KiloCode | OpenClaw | Codex CLI | Kimi Code | Antigravity | Antigravity CLI (`agy`) | Kiro | Zed | Pi | OMP |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | MCP Server / Native Tools | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Native plugin | Native plugin | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| PreToolUse Hook | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Plugin | Plugin | Plugin | Yes | Yes | -- | -- | Yes | -- | Yes (extension) | Plugin |
+| PreToolUse Hook | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Plugin | Plugin | Plugin | Yes | Yes | -- | Bounded | Yes | -- | Yes (extension) | Plugin |
 | PostToolUse Hook | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Plugin | Plugin | Plugin | Yes | Yes | -- | Yes (capture-only) | Yes | -- | Yes (extension) | Plugin |
 | SessionStart Hook | Yes | Yes | Yes | Yes | Yes | Yes | -- | ✓ (via experimental.chat.system.transform) | ✓ (via experimental.chat.system.transform) | Plugin | Yes | Yes | -- | -- | -- | -- | Yes (extension) | Plugin |
 | PreCompact Hook | Yes | Yes | Yes | Yes | Yes | Yes | -- | Plugin | Plugin | Plugin | Yes | Yes | -- | -- | -- | -- | Yes (extension) | Plugin |
 | Can Modify Args | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Plugin | Plugin | Plugin | -- | Yes | -- | -- | -- | -- | Yes (extension) | -- |
-| Can Block Tools | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Plugin | Plugin | Plugin | Yes | Yes | -- | -- | Yes | -- | Yes (extension) | Plugin |
+| Can Block Tools | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Plugin | Plugin | Plugin | Yes | Yes | -- | Bounded | Yes | -- | Yes (extension) | Plugin |
 | Utility Commands (ctx) | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes (/ctx-stats, /ctx-doctor) | Yes |
 | Slash Commands | Yes | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- |
 | Plugin Marketplace | Yes | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- |
@@ -1393,6 +1395,8 @@ Tool call output can be collapsed/expanded with the default Pi's default keybind
 >
 > **Codex CLI** hooks require `[features].hooks = true`. MCP tools work, and hook scripts activate through `$CODEX_HOME/hooks.json` or `~/.codex/hooks.json`. PreToolUse supports `permissionDecision: "deny"` only; input modification still needs upstream `updatedInput` support ([openai/codex#18491](https://github.com/openai/codex/issues/18491)). `additionalContext` is not supported in PreToolUse (context injection works via PostToolUse and SessionStart instead; the codex formatter handles this automatically). PreCompact stores resume snapshots before compaction on Codex builds that emit the event, SessionStart restores them, and UserPromptSubmit/Stop capture prompt and turn-end continuity events. See the Codex install section for setup. **Antigravity** and **Zed** do not support hooks. They rely solely on manually-copied routing instruction files (`AGENTS.md` / `GEMINI.md`) for enforcement (~60% compliance). See each platform's install section for copy instructions. Antigravity and Zed are auto-detected via MCP protocol handshake — no manual platform configuration needed.
 >
+> **Antigravity CLI (`agy`)** supports bounded `PreToolUse` blocking for mapped Bash/Read/Grep/WebFetch surfaces, plus `PostToolUse` capture and best-effort `Stop` capture through its plugin `hooks.json`. The routing rule and routing skill remain the broader instruction layer; `PreInvocation`/`PostInvocation` are not wired until their payload/response semantics are verified.
+>
 > **Kiro** supports native `preToolUse` and `postToolUse` hooks for routing enforcement and tool event capture. `agentSpawn` (SessionStart equivalent) and `stop` are not yet wired. Requires manually copying `KIRO.md` to your project root. Kiro is auto-detected via MCP protocol handshake (`clientInfo.name`).
 >
 > **Pi Coding Agent** runs context-mode as an extension with full hook support. The extension registers `tool_call`, `tool_result`, `session_start`, and `session_before_compact` events, providing high session continuity coverage. The MCP server provides all 11 MCP tools.
@@ -1403,7 +1407,7 @@ Tool call output can be collapsed/expanded with the default Pi's default keybind
 
 Hooks intercept tool calls programmatically — they can block dangerous commands and redirect them to the sandbox before execution. Instruction files guide the model via prompt instructions but cannot block anything. **Always enable hooks where supported.**
 
-> **Note:** Routing instruction files were previously auto-written to project directories on first session start. This was disabled to prevent git tree pollution ([#158](https://github.com/mksglu/context-mode/issues/158), [#164](https://github.com/mksglu/context-mode/issues/164)). Hook-capable platforms (Claude Code, Gemini CLI, VS Code Copilot, JetBrains Copilot, GitHub Copilot CLI, Cursor, OpenCode, OpenClaw, Codex CLI, OMP via plugin) inject routing via hooks and need no file. Platforms without session-start injection — Zed and Antigravity (no hooks) and Kiro (tool hooks only; `agentSpawn`/SessionStart not yet wired) — require a one-time manual copy of the routing file; see each platform's install section.
+> **Note:** Routing instruction files were previously auto-written to project directories on first session start. This was disabled to prevent git tree pollution ([#158](https://github.com/mksglu/context-mode/issues/158), [#164](https://github.com/mksglu/context-mode/issues/164)). Hook-capable platforms (Claude Code, Gemini CLI, VS Code Copilot, JetBrains Copilot, GitHub Copilot CLI, Cursor, OpenCode, OpenClaw, Codex CLI, Antigravity CLI for bounded tool hooks, Kiro for tool hooks, OMP via plugin) inject or enforce routing without writing files. Platforms without hook support — Zed and Antigravity IDE — require a one-time manual copy of the routing file; see each platform's install section.
 
 | Platform | Hooks | Instruction File | With Hooks | Without Hooks |
 |---|:---:|---|:---:|:---:|
@@ -1417,7 +1421,7 @@ Hooks intercept tool calls programmatically — they can block dangerous command
 | OpenClaw | Plugin | [`AGENTS.md`](configs/openclaw/AGENTS.md) | **~98% saved** | ~60% saved |
 | Codex CLI | Yes | [`AGENTS.md`](configs/codex/AGENTS.md) | **~98% saved** | ~60% saved |
 | Antigravity | -- | [`GEMINI.md`](configs/antigravity/GEMINI.md) | -- | ~60% saved |
-| Antigravity CLI (`agy`) | -- (capture-only) | routing skill ([`SKILL.md`](configs/antigravity-cli/skills/context-mode/SKILL.md)) | -- | ~60% saved |
+| Antigravity CLI (`agy`) | Bounded | routing rule + skill ([`rules`](configs/antigravity-cli/rules/context-mode.md), [`skill`](configs/antigravity-cli/skills/context-mode/SKILL.md)) | bounded Bash/Read/Grep/WebFetch enforcement | ~60% saved |
 | Kiro | Yes | [`KIRO.md`](configs/kiro/KIRO.md) | **~98% saved** | ~60% saved |
 | Zed | -- | [`AGENTS.md`](configs/zed/AGENTS.md) | -- | ~60% saved |
 | Pi | ✓ | [`AGENTS.md`](configs/pi/AGENTS.md) | **~98% saved** | ~60% saved |

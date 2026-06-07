@@ -38,6 +38,10 @@ describe("scripts/version-sync.mjs targets", () => {
     expect(SCRIPT_SRC).toContain('"configs/antigravity-cli/.claude-plugin/plugin.json"');
   });
 
+  it("includes configs/copilot-cli/.github/plugin/plugin.json (Copilot CLI bundle)", () => {
+    expect(SCRIPT_SRC).toContain('"configs/copilot-cli/.github/plugin/plugin.json"');
+  });
+
   it("does NOT include .codex-plugin/marketplace.json (Codex never reads that path)", () => {
     // Codex CLI's MARKETPLACE_MANIFEST_RELATIVE_PATHS constant
     // (refs/platforms/codex/codex-rs/core-plugins/src/marketplace.rs:21)
@@ -59,6 +63,10 @@ describe("package.json `version` script `git add` list", () => {
 
   it("includes configs/antigravity-cli/.claude-plugin/plugin.json (agy bundle)", () => {
     expect(PKG_JSON.scripts.version).toContain("configs/antigravity-cli/.claude-plugin/plugin.json");
+  });
+
+  it("includes configs/copilot-cli/.github/plugin/plugin.json (Copilot CLI bundle)", () => {
+    expect(PKG_JSON.scripts.version).toContain("configs/copilot-cli/.github/plugin/plugin.json");
   });
 
   it("does NOT include .codex-plugin/marketplace.json (file is removed — Codex never reads it)", () => {
@@ -89,6 +97,7 @@ describe("shipped manifests are in lockstep with package.json", () => {
     "openclaw.plugin.json",
     ".pi/extensions/context-mode/package.json",
     "configs/antigravity-cli/.claude-plugin/plugin.json",
+    "configs/copilot-cli/.github/plugin/plugin.json",
   ];
   for (const manifest of SHIPPED) {
     it(`${manifest} matches package.json version`, () => {
@@ -118,6 +127,7 @@ describe("version-sync end-to-end", () => {
         ".openclaw-plugin",
         ".pi/extensions/context-mode",
         "configs/antigravity-cli/.claude-plugin",
+        "configs/copilot-cli/.github/plugin",
         "scripts",
       ];
       for (const d of dirs) mkdirSync(join(scratch, d), { recursive: true });
@@ -135,6 +145,7 @@ describe("version-sync end-to-end", () => {
         "openclaw.plugin.json",
         ".pi/extensions/context-mode/package.json",
         "configs/antigravity-cli/.claude-plugin/plugin.json",
+        "configs/copilot-cli/.github/plugin/plugin.json",
       ];
       for (const m of manifests) {
         cpSync(resolve(REPO_ROOT, m), join(scratch, m));

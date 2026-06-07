@@ -44,7 +44,7 @@ import {
   StorageDirectoryError,
 } from "../../src/session/db.js";
 import { ROUTING_BLOCK } from "../../hooks/routing-block.mjs";
-import { sanitizeSchemaForStrictClients } from "../../src/server.js";
+import { sanitizeSchemaForStrictClients, resolveExecTimeout, AGY_DEFAULT_EXEC_TIMEOUT_MS } from "../../src/server.js";
 import { stripJsonComments, parseJsonc } from "../../src/util/jsonc.js";
 
 // ─── Shared setup ───────────────────────────────────────────────────────────
@@ -6685,5 +6685,40 @@ describe("parseJsonc / stripJsonComments (src/util/jsonc)", () => {
 
   test("returns undefined when both strict and lenient parses fail", () => {
     expect(parseJsonc("not json at all {{")).toBeUndefined();
+  });
+});
+
+describe("resolveExecTimeout (agy default execution timeout)", () => {
+  const savedPlatform = process.env.CONTEXT_MODE_PLATFORM;
+  const savedOverride = process.env.CONTEXT_MODE_AGY_EXEC_TIMEOUT_MS;
+  afterEach(() => {
+    if (savedPlatform === undefined) delete process.env.CONTEXT_MODE_PLATFORM;
+    else process.env.CONTEXT_MODE_PLATFORM = savedPlatform;
+    if (savedOverride === undefined) delete process.env.CONTEXT_MODE_AGY_EXEC_TIMEOUT_MS;
+    else process.env.CONTEXT_MODE_AGY_EXEC_TIMEOUT_MS = savedOverride;
+  });
+
+  test("passes an explicit timeout through on any platform", () => {
+    process.env.CONTEXT_MODE_PLATFORM = "antigravity-cli";
+    expect(resolveExecTimeout(5000)).toBe(5000);
+    process.env.CONTEXT_MODE_PLATFORM = "claude-code";
+    expect(resolveExecTimeout(5000)).toBe(5000);
+  });
+
+  test("applies the agy default ONLY under antigravity-cli when no timeout is given", () => {
+    process.env.CONTEXT_MODE_PLATFORM = "antigravity-cli";
+    delete process.env.CONTEXT_MODE_AGY_EXEC_TIMEOUT_MS;
+    expect(resolveExecTimeout(undefined)).toBe(AGY_DEFAULT_EXEC_TIMEOUT_MS);
+  });
+
+  test("leaves the timeout unbounded (undefined) on non-agy hosts", () => {
+    process.env.CONTEXT_MODE_PLATFORM = "claude-code";
+    expect(resolveExecTimeout(undefined)).toBeUndefined();
+  });
+
+  test("honors CONTEXT_MODE_AGY_EXEC_TIMEOUT_MS override under agy", () => {
+    process.env.CONTEXT_MODE_PLATFORM = "antigravity-cli";
+    process.env.CONTEXT_MODE_AGY_EXEC_TIMEOUT_MS = "1500";
+    expect(resolveExecTimeout(undefined)).toBe(1500);
   });
 });

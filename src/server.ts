@@ -1419,6 +1419,25 @@ function truncateCommandForEcho(command: string): string {
 }
 
 /**
+ * Default execution timeout (ms) applied ONLY under Antigravity CLI (`agy`).
+ * agy does not enforce an MCP RPC timeout, so a ctx_execute with a runaway or
+ * blocking script hangs forever — the host never kills it and the user must
+ * interrupt. Every other host enforces its own RPC timeout, so we keep the
+ * no-server-timer behavior there (Issue #406 — long builds need an unbounded
+ * run). A caller can still pass an explicit `timeout` to override on any host.
+ */
+export const AGY_DEFAULT_EXEC_TIMEOUT_MS = 120_000;
+export function resolveExecTimeout(timeout: number | undefined): number | undefined {
+  if (timeout !== undefined) return timeout;
+  // Only agy gets a default — every other host enforces its own RPC timeout, so
+  // keep the unbounded behavior there. Detected via the env the agy bundle pins
+  // (CONTEXT_MODE_PLATFORM=antigravity-cli). Tunable via CONTEXT_MODE_AGY_EXEC_TIMEOUT_MS.
+  if (detectPlatform().platform !== "antigravity-cli") return undefined;
+  const override = Number(process.env.CONTEXT_MODE_AGY_EXEC_TIMEOUT_MS);
+  return Number.isFinite(override) && override > 0 ? override : AGY_DEFAULT_EXEC_TIMEOUT_MS;
+}
+
+/**
  * Per-call budget for the source-code echo prepended by `ctx_execute` and
  * `ctx_execute_file` (Issues #717 + #736). The full code always reaches the
  * sandbox — only the echo is clipped so massive payloads don't dominate
@@ -1720,7 +1739,8 @@ ${code}
 __cm_main().catch(e=>{console.error(e);process.exitCode=1});${background ? '\nsetInterval(()=>{},2147483647);' : ''}
 })(typeof require!=='undefined'?require:null);`;
       }
-      const result = await executor.execute({ language, code: instrumentedCode, timeout, background });
+      const effTimeout = resolveExecTimeout(timeout);
+      const result = await executor.execute({ language, code: instrumentedCode, timeout: effTimeout, background });
 
       // Echo the executed source code before stdout so users can audit
       // and tooling can block command patterns (Issues #717 + #736).
@@ -1750,7 +1770,7 @@ __cm_main().catch(e=>{console.error(e);process.exitCode=1});${background ? '\nse
             content: [
               {
                 type: "text" as const,
-                text: `${echo}${partialOutput}\n\n_(process backgrounded after ${timeout}ms — still running)_`,
+                text: `${echo}${partialOutput}\n\n_(process backgrounded after ${effTimeout}ms — still running)_`,
               },
             ],
           });
@@ -1761,7 +1781,7 @@ __cm_main().catch(e=>{console.error(e);process.exitCode=1});${background ? '\nse
             content: [
               {
                 type: "text" as const,
-                text: `${echo}${partialOutput}\n\n_(timed out after ${timeout}ms — partial output shown above)_`,
+                text: `${echo}${partialOutput}\n\n_(timed out after ${effTimeout}ms — partial output shown above)_`,
               },
             ],
           });
@@ -1770,7 +1790,7 @@ __cm_main().catch(e=>{console.error(e);process.exitCode=1});${background ? '\nse
           content: [
             {
               type: "text" as const,
-              text: `${echo}Execution timed out after ${timeout}ms\n\nstderr:\n${result.stderr}`,
+              text: `${echo}Execution timed out after ${effTimeout}ms\n\nstderr:\n${result.stderr}`,
             },
           ],
           isError: true,
@@ -2017,11 +2037,12 @@ EXAMPLE: ctx_execute_file(path: "data.csv", language: "javascript", code: "const
     }
 
     try {
+      const effTimeout = resolveExecTimeout(timeout);
       const result = await executor.executeFile({
         path,
         language,
         code,
-        timeout,
+        timeout: effTimeout,
       });
 
       // Echo path + executed source code before stdout for audit/debug
@@ -2033,7 +2054,7 @@ EXAMPLE: ctx_execute_file(path: "data.csv", language: "javascript", code: "const
           content: [
             {
               type: "text" as const,
-              text: `${echo}Timed out processing ${path} after ${timeout}ms`,
+              text: `${echo}Timed out processing ${path} after ${effTimeout}ms`,
             },
           ],
           isError: true,
@@ -3620,10 +3641,11 @@ EXAMPLE: ctx_batch_execute(
 
       // Full stdout is preserved per-command and indexed into FTS5 (Issue #61, #197).
       // Concurrency>1 switches to a worker pool with per-command timeouts.
+      const effTimeout = resolveExecTimeout(timeout);
       const { outputs: perCommandOutputs, timedOut } = await runBatchCommands(
         commands,
         {
-          timeout,
+          timeout: effTimeout,
           concurrency,
           nodeOptsPrefix,
           onFsBytes: (bytes) => { sessionStats.bytesSandboxed += bytes; },
@@ -3640,7 +3662,7 @@ EXAMPLE: ctx_batch_execute(
           content: [
             {
               type: "text" as const,
-              text: `Batch timed out after ${timeout}ms. No output captured.`,
+              text: `Batch timed out after ${effTimeout}ms. No output captured.`,
             },
           ],
           isError: true,

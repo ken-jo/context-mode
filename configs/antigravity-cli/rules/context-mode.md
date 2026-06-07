@@ -5,6 +5,23 @@ task analyzes, counts, filters, compares, searches, parses, transforms, fetches,
 or otherwise processes data. Raw bytes should stay in the sandbox; only the
 derived answer should enter the conversation.
 
+## Do not dump — derive (most common mistake)
+
+Do NOT use `context-mode/ctx_execute_file` or `ctx_execute` to print a whole file
+or a full method/config (e.g. `print(FILE_CONTENT)`, `cat config.yaml`, dumping a
+281-line file). That defeats the purpose: on agy the tool's stdout is saved to a
+step file that you then read back, so a full dump costs your context window TWICE
+(once in the result, once on the follow-up read). Print only the specific value,
+matches, count, or known line-range you need:
+
+- WRONG: `ctx_execute_file(path:"config.yaml", language:"python", code:"print(FILE_CONTENT)")`
+- RIGHT (value): `code:"import yaml; d=yaml.safe_load(FILE_CONTENT); print(d['active_strategy'])"`
+- RIGHT (matches): `code:"import re;[print(i+1,l) for i,l in enumerate(FILE_CONTENT.splitlines()) if 'active_strategies' in l]"`
+- RIGHT (known slice): `code:"print(chr(10).join(FILE_CONTENT.splitlines()[190:230]))"`
+
+If you truly need to read a small, exact byte range to edit it, native `Read` /
+`view_file` on that range is fine — but never dump an entire file through a hook.
+
 ## Tool call surface
 
 Antigravity CLI exposes context-mode tools as `context-mode/<tool>` calls. If

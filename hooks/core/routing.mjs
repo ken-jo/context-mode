@@ -477,7 +477,9 @@ const TOOL_ALIASES = {
   "search_file_content": "Grep",
   "web_fetch": "WebFetch",
   "read_url_content": "WebFetch",
-  // Antigravity CLI (`agy`) native tool names.
+  // Antigravity CLI (`agy`) native tool names. Keep in sync with the two other
+  // agy maps: hooks/antigravity-cli/payload.mjs (normalizeAgyToolName) and
+  // src/session/extract.ts (TOOL_NAME_NORMALIZE).
   "run_command": "Bash",
   "view_file": "Read",
   "list_dir": "LS",

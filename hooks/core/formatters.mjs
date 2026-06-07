@@ -197,12 +197,24 @@ export const formatters = {
     // transcript probe), so context guidance must become an enforceable deny
     // or it disappears and the native tool runs unchanged.
     deny: (reason) => ({ decision: "deny", reason }),
-    ask: (reason) => ({ decision: "ask", ...(reason ? { reason } : {}) }),
-    modify: () => ({
-      decision: "deny",
-      reason:
-        "context-mode: redirected. Use the context-mode MCP tools (ctx_execute / ctx_fetch_and_index / ctx_search) so raw bytes stay out of the conversation.",
-    }),
+    // Carry a fallback reason on `ask` so a security-policy ask (routing emits
+    // {action:"ask"} with no reason) never shows a bare, unexplained prompt.
+    ask: (reason) => ({ decision: "ask", reason: reason ?? "Action requires user confirmation" }),
+    // agy cannot modify tool args, so a routing `modify` becomes a deny. Surface
+    // the per-tool redirect guidance routing carried in `updatedInput.command`
+    // (an `echo "<guidance>"` payload that already uses agy's context-mode/<tool>
+    // surface) instead of a generic line; fall back to the generic redirect.
+    modify: (updatedInput) => {
+      const cmd = updatedInput?.command ?? updatedInput?.CommandLine ?? "";
+      const m = String(cmd).match(/^echo\s+"([\s\S]*)"\s*$/);
+      const guidance = m ? m[1].replace(/\\(["\\])/g, "$1") : "";
+      return {
+        decision: "deny",
+        reason:
+          guidance ||
+          "context-mode: redirected. Use the context-mode MCP tools (ctx_execute / ctx_fetch_and_index / ctx_search) so raw bytes stay out of the conversation.",
+      };
+    },
     context: (additionalContext) => ({
       decision: "deny",
       reason: agyContextReason(additionalContext),
@@ -226,6 +238,9 @@ export const formatters = {
   },
 };
 
+// Keep in sync with the identical agyContextReason in
+// src/adapters/antigravity-cli/index.ts: this bundled .mjs formatter (runtime
+// hook path) and the TS adapter are separate layers; the text must not drift.
 function agyContextReason(additionalContext) {
   const text = String(additionalContext ?? "")
     .replace(/<\/?context_guidance>/g, " ")

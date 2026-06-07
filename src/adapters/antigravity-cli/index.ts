@@ -158,6 +158,9 @@ const PRE_HOOK_MATCHER = "run_command|view_file|grep_search|web_fetch|read_url_c
 const POST_HOOK_COMMAND = "context-mode hook antigravity-cli posttooluse";
 const STOP_HOOK_COMMAND = "context-mode hook antigravity-cli stop";
 
+// Keep in sync with the identical agyContextReason in hooks/core/formatters.mjs:
+// two copies exist because the bundled .mjs formatter (runtime hook path) and
+// this TS adapter are separate layers; the deny-reason text must not drift.
 function agyContextReason(additionalContext: string): string {
   const text = String(additionalContext ?? "")
     .replace(/<\/?context_guidance>/g, " ")
@@ -243,9 +246,11 @@ export class AntigravityCliAdapter extends AntigravityAdapter {
       return { decision: "deny", reason: response.reason ?? "Denied by context-mode" };
     }
     if (response.decision === "ask") {
+      // Fallback reason so a security-policy ask is never a bare prompt
+      // (mirrors hooks/core/formatters.mjs antigravity-cli.ask).
       return {
         decision: "ask",
-        ...(response.reason ? { reason: response.reason } : {}),
+        reason: response.reason ?? "Action requires user confirmation",
       };
     }
     if (response.decision === "context" && response.additionalContext) {

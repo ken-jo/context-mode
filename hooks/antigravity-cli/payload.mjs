@@ -24,6 +24,10 @@ export function getAgyProjectDir(payload) {
     : undefined;
 }
 
+// agy native tool-name -> canonical map. Keep in sync with the two other copies:
+// hooks/core/routing.mjs (TOOL_ALIASES) and src/session/extract.ts
+// (TOOL_NAME_NORMALIZE). Three layers normalize independently; adding a new agy
+// tool means updating all three (a single shared table is a follow-up cleanup).
 function normalizeAgyToolName(name) {
   switch (name) {
     case "run_command":

@@ -90,7 +90,10 @@ describe("antigravity-cli hooks", () => {
       expect(r.status).toBe(0);
       const parsed = JSON.parse(r.stdout.trim());
       expect(parsed).toMatchObject({ decision: "deny" });
-      expect(parsed.reason).toContain("context-mode: redirected");
+      // agy modify surfaces the per-tool routing guidance (curl/wget), not a
+      // generic line, using agy's context-mode/<tool> call surface.
+      expect(parsed.reason).toContain("curl/wget redirected");
+      expect(parsed.reason).toContain("context-mode/ctx_execute");
     } finally {
       try { rmSync(sentinelDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }

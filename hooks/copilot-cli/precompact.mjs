@@ -19,9 +19,15 @@ import { fileURLToPath } from "node:url";
 const HOOK_DIR = dirname(fileURLToPath(import.meta.url));
 const { loadSessionDB, loadSnapshot } = createSessionLoaders(HOOK_DIR);
 const OPTS = COPILOT_OPTS;
-const DEBUG_LOG = join(resolveConfigDir(OPTS), "context-mode", "precompact-debug.log");
+// Diagnostic log is opt-in via CONTEXT_MODE_DEBUG (same pattern as the kimi
+// hooks): keep the error telemetry available to contributors without writing an
+// append-only file to every user's config dir on compaction. See #787 review.
+const DEBUG_LOG = process.env.CONTEXT_MODE_DEBUG
+  ? join(resolveConfigDir(OPTS), "context-mode", "precompact-debug.log")
+  : null;
 
 function logDebug(line) {
+  if (!DEBUG_LOG) return;
   try {
     mkdirSync(dirname(DEBUG_LOG), { recursive: true });
     appendFileSync(DEBUG_LOG, line);

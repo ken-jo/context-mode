@@ -99,17 +99,22 @@ try {
     db.close();
   }
 } catch (err) {
-  try {
-    const { appendFileSync, mkdirSync } = await import("node:fs");
-    const { join: pjoin, dirname: pdirname } = await import("node:path");
-    const logPath = pjoin(resolveConfigDir(OPTS), "context-mode", "sessionstart-debug.log");
-    mkdirSync(pdirname(logPath), { recursive: true });
-    appendFileSync(
-      logPath,
-      `[${new Date().toISOString()}] ${err?.message || err}\n${err?.stack || ""}\n`,
-    );
-  } catch {
-    /* ignore logging failure */
+  // Error telemetry is opt-in via CONTEXT_MODE_DEBUG (same pattern as the kimi
+  // hooks) so we don't write an append-only log to every user's config dir on a
+  // transient SessionStart error. See #787 review.
+  if (process.env.CONTEXT_MODE_DEBUG) {
+    try {
+      const { appendFileSync, mkdirSync } = await import("node:fs");
+      const { join: pjoin, dirname: pdirname } = await import("node:path");
+      const logPath = pjoin(resolveConfigDir(OPTS), "context-mode", "sessionstart-debug.log");
+      mkdirSync(pdirname(logPath), { recursive: true });
+      appendFileSync(
+        logPath,
+        `[${new Date().toISOString()}] ${err?.message || err}\n${err?.stack || ""}\n`,
+      );
+    } catch {
+      /* ignore logging failure */
+    }
   }
 }
 

@@ -1,5 +1,6 @@
 /**
- * copilot-cli capture hooks — UserPromptSubmit / PreCompact / Stop.
+ * copilot-cli capture hooks — UserPromptSubmit / PreCompact / Stop, plus the
+ * PreToolUse fail-open brick guard.
  *
  * Spawns each hook script with a real Copilot-CLI-shaped (snake_case) payload
  * and asserts it persists to the session DB under ~/.copilot/context-mode/.
@@ -72,5 +73,22 @@ describe("copilot-cli capture hooks", () => {
     expect((db.prepare("select count(*) c from session_resume").get() as { c: number }).c).toBe(1);
     expect((db.prepare("select compact_count cc from session_meta").get() as { cc: number }).cc).toBeGreaterThanOrEqual(1);
     db.close();
+  });
+});
+
+describe("copilot-cli PreToolUse fail-open (brick guard)", () => {
+  test("a payload that throws exits 0 with no deny (must not brick Copilot CLI 1.0.59)", () => {
+    // parseStdin runs JSON.parse, so malformed stdin throws inside the hook body.
+    // Without the fail-open try/catch the process would exit non-zero with empty
+    // stdout, which Copilot CLI 1.0.59 reads as "Denied by preToolUse hook (hook
+    // errored)" and uses to block EVERY tool. Fail-open => exit 0 and no deny so
+    // the host ALLOWS the tool; only context-mode's routing is skipped.
+    const r = spawnSync("node", [join(REPO, "hooks", "copilot-cli", "pretooluse.mjs")], {
+      input: "not-json{{",
+      encoding: "utf-8",
+      timeout: 30_000,
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout ?? "").not.toContain("permissionDecision");
   });
 });

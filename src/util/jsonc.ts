@@ -30,7 +30,28 @@ export function stripJsonComments(str: string): string {
     if (!inString && c === "/" && next === "*") { inBlockComment = true; i++; continue; }
     out += c;
   }
-  return out.replace(/,(\s*[}\]])/g, "$1");
+  // Trailing-comma removal, string-aware. The scan above already removed
+  // comments, so this second pass over `out` only needs to track string state:
+  // a comma is "trailing" when the next significant char is `}` or `]`. Doing
+  // it here — instead of a post-hoc trailing-comma regex over the whole string —
+  // preserves commas inside string literals (e.g. "[1, ]"), which that regex
+  // silently corrupted to "[1 ]". See #787 review.
+  let result = "";
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < out.length; i++) {
+    const c = out[i];
+    if (esc) { result += c; esc = false; continue; }
+    if (c === "\\") { result += c; esc = inStr; continue; }
+    if (c === '"') { inStr = !inStr; result += c; continue; }
+    if (!inStr && c === ",") {
+      let j = i + 1;
+      while (j < out.length && (out[j] === " " || out[j] === "\t" || out[j] === "\r" || out[j] === "\n")) j++;
+      if (out[j] === "}" || out[j] === "]") continue;
+    }
+    result += c;
+  }
+  return result;
 }
 
 /**

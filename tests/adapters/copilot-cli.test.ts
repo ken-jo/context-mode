@@ -78,7 +78,10 @@ describe("CopilotCliAdapter", () => {
       expect(Object.keys(config).sort()).toEqual(Object.values(HOOK_TYPES).sort());
       for (const [hookType, entries] of Object.entries(config)) {
         expect(HOOK_SCRIPTS[hookType]).toBeDefined();
-        expect(entries[0].command).toBe(`context-mode hook copilot-cli ${hookType.toLowerCase()}`);
+        // Dispatch token = the .mjs script base (decoupled from the camelCase
+        // host event name), e.g. event "userPromptSubmitted" -> "userpromptsubmit".
+        const token = HOOK_SCRIPTS[hookType].replace(/\.mjs$/, "");
+        expect(entries[0].command).toBe(`context-mode hook copilot-cli ${token}`);
         expect(entries[0].hooks).toBeUndefined();
       }
     });
@@ -241,15 +244,17 @@ describe("configs/copilot-cli — GitHub Copilot CLI plugin bundle", () => {
     // @github/copilot binary, and divergence would silently break capture.
     const hooks = JSON.parse(readFileSync(resolve(PLUGIN, "hooks.json"), "utf-8"));
     expect(hooks.version).toBe(1);
-    // PreToolUse (routing/veto) + SessionStart are the required pair; the rest
+    // preToolUse (routing/veto) + sessionStart are the required pair; the rest
     // are capture. All six dispatch the global binary, not a bundled script.
+    // Event keys are Copilot's camelCase (PascalCase never fires on 1.0.60);
+    // the dispatch token (arg) is the lowercase .mjs script base, decoupled.
     for (const [event, arg] of [
-      ["PreToolUse", "pretooluse"],
-      ["PostToolUse", "posttooluse"],
-      ["SessionStart", "sessionstart"],
-      ["UserPromptSubmit", "userpromptsubmit"],
-      ["Stop", "stop"],
-      ["PreCompact", "precompact"],
+      ["preToolUse", "pretooluse"],
+      ["postToolUse", "posttooluse"],
+      ["sessionStart", "sessionstart"],
+      ["userPromptSubmitted", "userpromptsubmit"],
+      ["agentStop", "stop"],
+      ["preCompact", "precompact"],
     ] as const) {
       const entry = hooks.hooks?.[event]?.[0];
       expect(entry?.type).toBe("command");

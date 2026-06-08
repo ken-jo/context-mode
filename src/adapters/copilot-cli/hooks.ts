@@ -1,21 +1,26 @@
 /**
  * adapters/copilot-cli/hooks — GitHub Copilot CLI hook definitions.
  *
- * Copilot CLI accepts both camelCase hook event names and VS Code-compatible
- * PascalCase event names. We emit PascalCase so the host sends snake_case
- * payload fields, matching the existing Copilot hook wrappers.
+ * GitHub Copilot CLI dispatches hooks by camelCase event names ONLY — verified
+ * against the @github/copilot 1.0.60 binary, whose hook table contains
+ * preToolUse / postToolUse / sessionStart / userPromptSubmitted / agentStop /
+ * preCompact and NO PascalCase (VS Code-style) aliases. PascalCase keys are
+ * silently ignored, so the routing/capture hooks never fire. The event-name
+ * KEYS below are therefore camelCase; the CLI dispatch token (the `.mjs` script
+ * base, e.g. `pretooluse`) is independent and stays lowercase via
+ * buildHookCommand, so changing the event casing does not change the dispatcher.
  */
 
 export const HOOK_TYPES = {
-  PRE_TOOL_USE: "PreToolUse",
-  POST_TOOL_USE: "PostToolUse",
-  PRE_COMPACT: "PreCompact",
-  SESSION_START: "SessionStart",
-  // Copilot CLI 1.0.59 also fires UserPromptSubmit + Stop (verified against the
-  // @github/copilot binary). Used for user-prompt + session-end capture, same
-  // as the codex/kimi adapters.
-  USER_PROMPT_SUBMIT: "UserPromptSubmit",
-  STOP: "Stop",
+  PRE_TOOL_USE: "preToolUse",
+  POST_TOOL_USE: "postToolUse",
+  PRE_COMPACT: "preCompact",
+  SESSION_START: "sessionStart",
+  // Copilot CLI 1.0.60 fires userPromptSubmitted + agentStop (verified against
+  // the @github/copilot binary). Used for user-prompt + session-end capture,
+  // same as the codex/kimi adapters.
+  USER_PROMPT_SUBMIT: "userPromptSubmitted",
+  STOP: "agentStop",
 } as const;
 
 export type HookType = (typeof HOOK_TYPES)[keyof typeof HOOK_TYPES];
@@ -63,5 +68,9 @@ export function buildHookCommand(hookType: HookType, _pluginRoot?: string): stri
   if (!scriptName) {
     throw new Error(`No script defined for hook type: ${hookType}`);
   }
-  return `context-mode hook copilot-cli ${hookType.toLowerCase()}`;
+  // The CLI dispatch token is the script base (pretooluse, posttooluse, …), NOT
+  // the camelCase host event name — keep them decoupled so the event KEY stays
+  // Copilot's camelCase while the dispatcher token (and the cli.ts hook handler)
+  // remain stable regardless of how the host names its events.
+  return `context-mode hook copilot-cli ${scriptName.replace(/\.mjs$/, "")}`;
 }

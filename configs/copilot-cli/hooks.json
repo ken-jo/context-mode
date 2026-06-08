@@ -1,37 +1,37 @@
 {
   "version": 1,
   "hooks": {
-    "PreToolUse": [
+    "preToolUse": [
       {
         "type": "command",
         "command": "context-mode hook copilot-cli pretooluse"
       }
     ],
-    "PostToolUse": [
+    "postToolUse": [
       {
         "type": "command",
         "command": "context-mode hook copilot-cli posttooluse"
       }
     ],
-    "SessionStart": [
+    "sessionStart": [
       {
         "type": "command",
         "command": "context-mode hook copilot-cli sessionstart"
       }
     ],
-    "UserPromptSubmit": [
+    "userPromptSubmitted": [
       {
         "type": "command",
         "command": "context-mode hook copilot-cli userpromptsubmit"
       }
     ],
-    "Stop": [
+    "agentStop": [
       {
         "type": "command",
         "command": "context-mode hook copilot-cli stop"
       }
     ],
-    "PreCompact": [
+    "preCompact": [
       {
         "type": "command",
         "command": "context-mode hook copilot-cli precompact"

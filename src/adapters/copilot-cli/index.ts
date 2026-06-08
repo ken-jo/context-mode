@@ -7,10 +7,13 @@
  *   - Hooks: $COPILOT_HOME/hooks/context-mode.json or
  *            ~/.copilot/hooks/context-mode.json.
  *
- * Hooks are VS Code-compatible PascalCase event keys with flat
- * `{ type, command }` entries, but Copilot CLI's command output contract is
- * top-level (`permissionDecision`, `modifiedArgs`, `additionalContext`), so
- * this adapter overrides the response formatter from CopilotBaseAdapter.
+ * Hooks use Copilot CLI's camelCase event keys (preToolUse / postToolUse /
+ * sessionStart / userPromptSubmitted / agentStop / preCompact — verified
+ * against the @github/copilot 1.0.60 binary; PascalCase aliases do NOT exist
+ * and are silently ignored) with flat `{ type, command }` entries. Copilot
+ * CLI's command output contract is top-level (`permissionDecision`,
+ * `modifiedArgs`, `additionalContext`), so this adapter overrides the response
+ * formatter from CopilotBaseAdapter.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -176,8 +179,8 @@ export class CopilotCliAdapter extends CopilotBaseAdapter {
       [
         { type: "command", command: buildHookCommand(hookType, pluginRoot) },
       ] as unknown as HookRegistration[string];
-    // Emit an entry for every declared hook type (PreToolUse, PostToolUse,
-    // PreCompact, SessionStart, UserPromptSubmit, Stop).
+    // Emit an entry for every declared hook type (preToolUse, postToolUse,
+    // preCompact, sessionStart, userPromptSubmitted, agentStop).
     const config: HookRegistration = {};
     for (const hookType of Object.values(HOOK_TYPES)) {
       config[hookType] = flat(hookType);
@@ -198,9 +201,9 @@ export class CopilotCliAdapter extends CopilotBaseAdapter {
       (settings.hooks as Record<string, unknown> | undefined) ?? {};
     const { HOOK_TYPES, HOOK_SCRIPTS, buildHookCommand } = this.hookModule;
 
-    // Configure every hook type the module declares (PreToolUse, PostToolUse,
-    // PreCompact, SessionStart, UserPromptSubmit, Stop) — driven by HOOK_TYPES
-    // so new events are picked up automatically.
+    // Configure every hook type the module declares (preToolUse, postToolUse,
+    // preCompact, sessionStart, userPromptSubmitted, agentStop) — driven by
+    // HOOK_TYPES so new events are picked up automatically.
     for (const hookType of Object.values(HOOK_TYPES)) {
       if (!HOOK_SCRIPTS[hookType]) continue;
       const desired = [

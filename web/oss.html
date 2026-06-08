@@ -219,38 +219,6 @@ pre code{overflow-wrap:normal;word-break:normal;white-space:pre}
 .video-card .play-btn::after{content:'';width:0;height:0;border-top:14px solid transparent;border-bottom:14px solid transparent;border-left:22px solid var(--accent);margin-left:6px}
 .video-caption{text-align:center;font-family:var(--mono);font-size:12.5px;color:var(--text-4);margin-top:12px;letter-spacing:.02em}
 
-/* ── Enterprise dark card (harmonized with index.html .final aesthetic) ── */
-.ent{background:linear-gradient(135deg,var(--night) 0%,var(--night-2) 100%);border-radius:16px;padding:64px 48px;margin:32px 0 64px;color:#fff;position:relative;overflow:hidden}
-.ent::before{content:'';position:absolute;top:-30%;right:-15%;width:500px;height:500px;background:radial-gradient(circle,rgba(75,123,236,.18) 0%,transparent 70%);pointer-events:none}
-.ent::after{content:'';position:absolute;bottom:-30%;left:-10%;width:400px;height:400px;background:radial-gradient(circle,rgba(13,124,74,.14) 0%,transparent 70%);pointer-events:none}
-.ent-inner{position:relative;z-index:1}
-.ent .kicker{color:#7aa2ff;background:rgba(75,123,236,.14)}
-.ent h2{color:#fff;font-family:var(--serif);font-size:clamp(2rem,5vw,3rem);font-weight:400;line-height:1.15;letter-spacing:-.02em}
-.ent .rule{background:#4b7bec}
-.ent .ld{font-size:1.05rem;color:#94a3b8;margin-top:16px;line-height:1.65;max-width:680px}
-.ent-feature{margin-top:36px;padding:28px 32px;background:rgba(20,28,38,.6);border:1px solid var(--night-3);border-radius:12px}
-.ent-feature .ft-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
-.ent-feature .ft-title{font-family:var(--sans);font-size:13px;font-weight:600;color:#7aa2ff;letter-spacing:.06em;text-transform:uppercase}
-.ent-feature .ft-tag{font-family:var(--mono);font-size:11px;color:#94a3b8;background:#1a2535;padding:3px 8px;border-radius:3px;letter-spacing:.04em}
-.ent-feature p{font-size:15px;color:#e0e4e8;line-height:1.7;margin:0 0 10px}
-.ent-feature p:last-child{margin-bottom:0}
-.ent-feature .small{font-size:13px;color:#94a3b8}
-.persona-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:14px}
-@media(max-width:760px){.persona-grid{grid-template-columns:1fr}}
-.persona-card{padding:22px 24px;background:rgba(20,28,38,.6);border:1px solid var(--night-3);border-radius:10px}
-.persona-card .role{font-family:var(--mono);font-size:11px;font-weight:600;color:#7aa2ff;letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px}
-.persona-card .ask{font-family:var(--sans);font-size:14.5px;color:#e0e4e8;line-height:1.6;margin-bottom:10px}
-.persona-card .ret{font-family:var(--mono);font-size:12px;color:#94a3b8;letter-spacing:.02em}
-.ent-final{margin-top:36px;padding:28px 32px;background:rgba(20,28,38,.6);border:1px solid var(--night-3);border-radius:12px;text-align:center}
-.ent-final .h{font-family:var(--serif);font-size:1.4rem;font-weight:400;color:#fff;margin-bottom:8px;letter-spacing:-.01em}
-.ent-final .sub{font-size:14px;color:#94a3b8;margin-bottom:22px}
-.ent-final .cta-row{display:flex;justify-content:center;gap:12px;flex-wrap:wrap}
-.ent-final .cta-row .pri{background:#4b7bec;color:#fff;padding:13px 28px;border-radius:6px;font-size:14px;font-weight:600;transition:.15s}
-.ent-final .cta-row .pri:hover{background:#3b6dd9;text-decoration:none}
-.ent-final .cta-row .sec{color:#cbd5e1;border:1px solid var(--night-3);padding:13px 28px;border-radius:6px;font-size:14px;font-weight:600;transition:.15s}
-.ent-final .cta-row .sec:hover{border-color:#4b7bec;text-decoration:none;color:#fff}
-@media(max-width:600px){.ent{padding:48px 28px}.ent-feature,.ent-final{padding:24px 22px}}
-
 /* ── Footer ── */
 footer{padding:64px 0 40px;text-align:center;background:var(--bg-alt);border-top:1px solid var(--border-light)}
 .footer-q{font-family:var(--serif);font-size:clamp(1.3rem,3vw,1.8rem);font-style:italic;color:var(--text);line-height:1.35;max-width:680px;margin:0 auto 24px;padding:0 24px}
@@ -629,59 +597,6 @@ footer{padding:64px 0 40px;text-align:center;background:var(--bg-alt);border-top
 </section>
 
 <hr class="sep">
-
-<!-- ═══════════════════════════════════════ ENTERPRISE ═══════════════════════════════════════ -->
-<div class="wrap">
-  <div class="ent rev">
-    <div class="ent-inner">
-      <p class="kicker">For teams</p>
-      <h2>context-mode for Enterprise.</h2>
-      <div class="rule"></div>
-      <p class="ld">The open-source plugin handles individual developers. For teams that need visibility, continuity across devices, and compliance, we are building a managed layer on top.</p>
-
-      <div class="ent-feature">
-        <div class="ft-head">
-          <span class="ft-title">Context as a Service</span>
-          <span class="ft-tag">API</span>
-        </div>
-        <p>Your AI tools produce session data that no other tool can see. We expose it as an API. CI/CD pipelines query it before deploy. Code review tools show AI decision trails. Compliance dashboards pull audit logs.</p>
-        <p class="small">The data layer for AI-assisted development. Twilio model: plugin free, API paid.</p>
-      </div>
-
-      <div class="persona-grid">
-        <div class="persona-card">
-          <div class="role">For your EM</div>
-          <p class="ask">"Which of my 10 engineers are struggling with AI tools? Who needs TDD coaching? Where are we wasting cycles?"</p>
-          <p class="ret">56 metrics · 8 personas · 144 actionable insights.</p>
-        </div>
-        <div class="persona-card">
-          <div class="role">For your CISO</div>
-          <p class="ask">"What did the AI do? Which files did it access? Did it run anything dangerous? Can we prove it for SOC2?"</p>
-          <p class="ret">AI audit trail · automated compliance reports.</p>
-        </div>
-        <div class="persona-card">
-          <div class="role">For your DevOps</div>
-          <p class="ask">"AI edited 47 files in this PR, 3 have no tests, 4 edit-run-fix cycles on auth.ts. Should we merge?"</p>
-          <p class="ret">GitHub Actions · AI risk scoring · deploy gates.</p>
-        </div>
-        <div class="persona-card">
-          <div class="role">For your developers</div>
-          <p class="ask">"I was debugging auth.ts yesterday on my laptop. Now I'm on my desktop. Where was I?"</p>
-          <p class="ret">Cloud sessions · any device, any time · full history.</p>
-        </div>
-      </div>
-
-      <div class="ent-final">
-        <p class="h">We're onboarding design partners.</p>
-        <p class="sub">5 spots for teams that want to shape the product. Free access during the design phase.</p>
-        <div class="cta-row">
-          <a class="pri" href="https://cal.com/mksglu" target="_blank" rel="noopener">Book a 15-min call →</a>
-          <a class="sec" href="mailto:bm.ksglu@gmail.com">bm.ksglu@gmail.com</a>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
 
 <!-- ═══════════════════════════════════════ FOOTER ═══════════════════════════════════════ -->
 <footer>

@@ -213,6 +213,10 @@ describe("configs/copilot-cli — GitHub Copilot CLI plugin bundle", () => {
     const mcp = JSON.parse(readFileSync(resolve(PLUGIN, ".mcp.json"), "utf-8"));
     const server = mcp.mcpServers?.["context-mode"];
     expect(server?.command).toBe("context-mode");
+    // Copilot CLI 1.0.44 rejects stdio MCP plugin entries when `args` is
+    // missing, even when the server takes no arguments. Keep the explicit empty
+    // array so local plugin loading works across older and newer Copilot CLI.
+    expect(server?.args).toEqual([]);
     // The env pin is the whole point: it makes the server self-identify as
     // Copilot, so ctx_upgrade / platform detection resolve copilot-cli even when
     // Claude Code is co-installed (otherwise ~/.claude wins and writes Claude's

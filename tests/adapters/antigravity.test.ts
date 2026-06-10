@@ -445,6 +445,7 @@ describe("configs/antigravity-cli — agy plugin bundle", () => {
     // A Node installer (not bash) so `npm run install:agy` runs natively on
     // Windows too — agy runs on Windows, so its installer must.
     expect(pkg.scripts["install:agy"]).toContain("scripts/install-antigravity-cli-plugin.mjs");
+    expect(pkg.files).toContain("scripts/install-antigravity-cli-plugin.mjs");
 
     const installer = resolve(AGY_REPO_ROOT, "scripts", "install-antigravity-cli-plugin.mjs");
     expect(existsSync(installer)).toBe(true);

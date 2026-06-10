@@ -61,6 +61,7 @@ import {
 import { buildNodeCommand, type HookAdapter, type PlatformId, isInProcessPluginPlatform } from "./adapters/types.js";
 import { detectPlatform, getSessionDirSegments } from "./adapters/detect.js";
 import { getHookScriptPaths } from "./util/hook-config.js";
+import { stripJsonComments } from "./util/jsonc.js";
 import { resolveClaudeConfigDir } from "./util/claude-config.js";
 import { resolveProjectDir } from "./util/project-dir.js";
 import { loadDatabase } from "./db-base.js";
@@ -116,61 +117,6 @@ export function shouldSuppressMcpToolsForNativePluginHost(
   if (platform !== "opencode" && platform !== "kilo") return false;
   const settings = opts.settings ?? readNativePluginHostSettings(platform);
   return settingsHasContextModePlugin(settings) && settingsHasLegacyContextModeMcp(settings);
-}
-
-function stripJsonComments(str: string): string {
-  let out = "";
-  let inString = false;
-  let escaped = false;
-  let inBlockComment = false;
-
-  for (let i = 0; i < str.length; i++) {
-    const c = str[i];
-    const next = str[i + 1];
-
-    if (inBlockComment) {
-      if (c === "*" && next === "/") {
-        inBlockComment = false;
-        i++;
-      }
-      continue;
-    }
-
-    if (escaped) {
-      out += c;
-      escaped = false;
-      continue;
-    }
-
-    if (c === "\\") {
-      out += c;
-      escaped = inString;
-      continue;
-    }
-
-    if (c === '"') {
-      inString = !inString;
-      out += c;
-      continue;
-    }
-
-    if (!inString && c === "/" && next === "/") {
-      while (i < str.length && str[i] !== "\n") i++;
-      if (i < str.length) out += "\n";
-      continue;
-    }
-
-    if (!inString && c === "/" && next === "*") {
-      inBlockComment = true;
-      i++;
-      continue;
-    }
-
-    out += c;
-  }
-
-  return out
-    .replace(/,(\s*[}\]])/g, "$1");
 }
 
 function readNativePluginHostSettings(platform: PlatformId): Record<string, unknown> | null {

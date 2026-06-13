@@ -215,6 +215,41 @@ describe("SHELL env var override", () => {
       vi.resetModules();
     }
   });
+
+  test("Windows prefers Git Bash over ambient SHELL=cmd.exe when Git Bash exists", async () => {
+    const originalPlatform = process.platform;
+    const cmd = "C:\\Windows\\System32\\cmd.exe";
+    const gitBash = "C:\\Program Files\\Git\\usr\\bin\\bash.exe";
+    process.env.SHELL = cmd;
+
+    vi.doMock("node:fs", async () => {
+      const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+      return {
+        ...actual,
+        existsSync: vi.fn((p: string | URL) => [cmd, gitBash].includes(String(p))),
+      };
+    });
+    vi.doMock("node:child_process", () => ({
+      execFileSync: vi.fn(() => ""),
+      execSync: vi.fn((command: string) => {
+        if (command === "where bash") return `${gitBash}\r\n`;
+        throw new Error(`unmocked execSync: ${command}`);
+      }),
+    }));
+
+    try {
+      Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+      const { detectRuntimes } = await import("../src/runtime.js");
+      const r = detectRuntimes();
+      expect(r.shell).toBe(gitBash);
+      expect(r.shell).not.toBe(cmd);
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
+      vi.doUnmock("node:fs");
+      vi.doUnmock("node:child_process");
+      vi.resetModules();
+    }
+  });
 });
 
 describe("runnableExists — Windows MS Store stub filter (#454)", () => {

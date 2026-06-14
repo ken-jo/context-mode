@@ -2421,6 +2421,32 @@ describe("ctx_upgrade tool: inline fallback for missing CLI", () => {
     expect(serverSrc).toMatch(/existsSync\(bundlePath\)/);
   });
 
+  test("ctx_doctor and ctx_upgrade prefer the Codex plugin manager runtime root only for Codex", () => {
+    expect(serverSrc).toContain("parseCodexContextModePluginRoot");
+    expect(serverSrc).toContain("function resolveCodexRuntimePluginRoot");
+    expect(serverSrc).toContain("function getRuntimeAwarePackageRoot");
+
+    const helperBody = serverSrc.slice(
+      serverSrc.indexOf("function getRuntimeAwarePackageRoot"),
+      serverSrc.indexOf("// Prevent silent MCP server death"),
+    );
+    expect(helperBody).toContain('platformId === "codex"');
+    expect(helperBody).toContain("resolveCodexRuntimePluginRoot(packageRoot)");
+
+    const doctorBody = serverSrc.slice(
+      serverSrc.indexOf('server.registerTool(\n  "ctx_doctor"'),
+      serverSrc.indexOf('server.registerTool(\n  "ctx_upgrade"'),
+    );
+    const upgradeBody = serverSrc.slice(
+      serverSrc.indexOf('server.registerTool(\n  "ctx_upgrade"'),
+      serverSrc.indexOf("// ── ctx-purge"),
+    );
+
+    expect(doctorBody).toContain("getRuntimeAwarePackageRoot(currentPlatform)");
+    expect(upgradeBody).toContain("platformId = signal.platform");
+    expect(upgradeBody).toContain("getRuntimeAwarePackageRoot(platformId)");
+  });
+
   test("tries build/cli.js second", () => {
     expect(serverSrc).toContain('resolve(pluginRoot, "build", "cli.js")');
   });

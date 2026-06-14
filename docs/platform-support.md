@@ -35,11 +35,11 @@ This puts the `context-mode` binary in PATH, which is required for:
 | Feature | Claude Code | Qwen Code | Gemini CLI | VS Code Copilot | JetBrains Copilot | GitHub Copilot CLI | Cursor | OpenCode | KiloCode | OpenClaw | Codex CLI | Kimi Code | Antigravity | Antigravity CLI (`agy`) | Kiro | Zed | Pi | OMP |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | **Paradigm** | json-stdio | json-stdio | json-stdio | json-stdio | json-stdio | json-stdio | json-stdio | ts-plugin | ts-plugin | ts-plugin | json-stdio | json-stdio | mcp-only | json-stdio | json-stdio | mcp-only | mcp-only | mcp-only |
-| **PreToolUse equivalent** | `PreToolUse` | `PreToolUse` | `BeforeTool` | `PreToolUse` | `PreToolUse` | `PreToolUse` | `preToolUse` | `tool.execute.before` | `tool.execute.before` | `tool_call:before` | `PreToolUse` | `PreToolUse` | -- | `PreToolUse` (bounded) | `preToolUse` | -- | -- | -- |
-| **PostToolUse equivalent** | `PostToolUse` | `PostToolUse` | `AfterTool` | `PostToolUse` | `PostToolUse` | `PostToolUse` | `postToolUse` | `tool.execute.after` | `tool.execute.after` | `tool_call:after` | `PostToolUse` | `PostToolUse` | -- | `PostToolUse` (capture-only) | `postToolUse` | -- | -- | -- |
-| **PreCompact equivalent** | `PreCompact` | `PreCompact` | `PreCompress` | `PreCompact` | `PreCompact` | `PreCompact` | -- | `experimental.session.compacting` | `experimental.session.compacting` | `registerContextEngine` | -- | `PreCompact` | -- | -- | -- | -- | -- | -- |
-| **SessionStart** | `SessionStart` | `SessionStart` | `SessionStart` | `SessionStart` | `SessionStart` | `SessionStart` | -- (buggy in Cursor) | -- | -- | `command:new` | `SessionStart` | `SessionStart` | -- | -- | -- | -- | -- | -- |
-| **Stop equivalent** | -- | -- | -- | `Stop` | `Stop` | `Stop` | `stop` | -- | -- | -- | `Stop` | `Stop` | -- | `Stop` | -- | -- | -- | -- |
+| **PreToolUse equivalent** | `PreToolUse` | `PreToolUse` | `BeforeTool` | `PreToolUse` | `PreToolUse` | `preToolUse` | `preToolUse` | `tool.execute.before` | `tool.execute.before` | `tool_call:before` | `PreToolUse` | `PreToolUse` | -- | `PreToolUse` (bounded) | `preToolUse` | -- | -- | -- |
+| **PostToolUse equivalent** | `PostToolUse` | `PostToolUse` | `AfterTool` | `PostToolUse` | `PostToolUse` | `postToolUse` | `postToolUse` | `tool.execute.after` | `tool.execute.after` | `tool_call:after` | `PostToolUse` | `PostToolUse` | -- | `PostToolUse` (capture-only) | `postToolUse` | -- | -- | -- |
+| **PreCompact equivalent** | `PreCompact` | `PreCompact` | `PreCompress` | `PreCompact` | `PreCompact` | `preCompact` | -- | `experimental.session.compacting` | `experimental.session.compacting` | `registerContextEngine` | -- | `PreCompact` | -- | -- | -- | -- | -- | -- |
+| **SessionStart** | `SessionStart` | `SessionStart` | `SessionStart` | `SessionStart` | `SessionStart` | `sessionStart` | -- (buggy in Cursor) | -- | -- | `command:new` | `SessionStart` | `SessionStart` | -- | -- | -- | -- | -- | -- |
+| **Stop equivalent** | -- | -- | -- | `Stop` | `Stop` | `agentStop` | `stop` | -- | -- | -- | `Stop` | `Stop` | -- | `Stop` | -- | -- | -- | -- |
 | **Can modify args** | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | No | Yes | -- | -- | -- | -- | -- | -- |
 | **Can modify output** | Yes | Yes | Yes | Yes | Yes | No | No | Yes (caveat) | Yes (caveat) | No | No | Yes | -- | -- | -- | -- | -- | -- |
 | **Can inject session context** | Yes | Yes | Yes | Yes | Yes | Yes | Yes | -- | -- | Yes | Yes | Yes | -- | -- | -- | -- | -- | -- |
@@ -584,15 +584,15 @@ context-mode hook jetbrains-copilot sessionstart
 
 **Hook Paradigm:** JSON stdin/stdout
 
-The standalone GitHub Copilot CLI (`copilot`) is user-home rooted under `~/.copilot` (override with `COPILOT_HOME`). It shares the VS Code Copilot family's PascalCase hook event names, but its command output contract is **top-level** (`permissionDecision`, `modifiedArgs`, `additionalContext`) rather than the VS Code `hookSpecificOutput` wrapper — context-mode's `copilot-cli` adapter formats responses accordingly.
+The standalone GitHub Copilot CLI (`copilot`) is user-home rooted under `~/.copilot` (override with `COPILOT_HOME`). Its hook config uses camelCase event keys, and its command output contract is **top-level** (`permissionDecision`, `modifiedArgs`, `additionalContext`) rather than the VS Code `hookSpecificOutput` wrapper — context-mode's `copilot-cli` adapter formats responses accordingly.
 
-**Hook Names:** (Copilot CLI 1.0.59 fires six events context-mode uses; verified against the `@github/copilot` binary)
-- `PreToolUse` -- fires before a tool is executed
-- `PostToolUse` -- fires after a tool completes
-- `PreCompact` -- fires before context compaction
-- `SessionStart` -- fires when a session starts
-- `UserPromptSubmit` -- fires when the user submits a prompt (user-prompt capture)
-- `Stop` -- fires when the agent stops (session-end capture)
+**Hook config keys:** (Copilot CLI 1.0.59 fires six events context-mode uses; verified against the `@github/copilot` binary)
+- `preToolUse` -- fires before a tool is executed
+- `postToolUse` -- fires after a tool completes
+- `preCompact` -- fires before context compaction
+- `sessionStart` -- fires when a session starts
+- `userPromptSubmitted` -- fires when the user submits a prompt (user-prompt capture)
+- `agentStop` -- fires when the agent stops (session-end capture)
 
 **Hook config shape:** flat `{ "type": "command", "command": "..." }` entries under a top-level `"version": 1` (required by the Copilot CLI hooks schema — the Claude-Code nested `{ matcher, hooks: [...] }` shape is rejected).
 

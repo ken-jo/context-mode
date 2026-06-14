@@ -868,6 +868,11 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform, sessi
 
   // ─── MCP execute: security check for shell commands ───
   // Match bare, generic MCP, and legacy context-mode execute tool names.
+  const shouldPinClaudeExecutorCwd =
+    platform === "claude-code" &&
+    typeof projectDir === "string" &&
+    projectDir.length > 0;
+
   if (matchesContextModeTool(toolName, "ctx_execute", "execute")) {
     if (security && toolInput.language === "shell") {
       const code = toolInput.code ?? "";
@@ -881,6 +886,9 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform, sessi
           return { action: "ask" };
         }
       }
+    }
+    if (toolInput.language === "shell" && shouldPinClaudeExecutorCwd && typeof toolInput.cwd !== "string") {
+      return { action: "modify", updatedInput: { ...toolInput, cwd: projectDir } };
     }
     return null;
   }
@@ -932,6 +940,9 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform, sessi
           }
         }
       }
+    }
+    if (shouldPinClaudeExecutorCwd && typeof toolInput.cwd !== "string") {
+      return { action: "modify", updatedInput: { ...toolInput, cwd: projectDir } };
     }
     return null;
   }

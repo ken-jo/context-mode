@@ -1237,7 +1237,7 @@ describe("ctx_index: projectRoot path resolution (#365)", () => {
     const buildEntry = resolve(__dirname, "..", "..", "build", "server.js");
     if (!existsSync(buildEntry)) {
       // Compile src → build/ on demand. Bundle is untouched (CI rebuilds it).
-      execSync("npx tsc --silent", {
+      execSync("npx tsc --pretty false", {
         cwd: resolve(__dirname, "..", ".."),
         stdio: "pipe",
         timeout: 60_000,

@@ -164,9 +164,12 @@ await runHook(async () => {
   const tool = input.tool_name ?? "";
   const toolInput = input.tool_input ?? {};
   const projectDir = getInputProjectDir(input);
+  const isSubagentContext = input.agent_id != null || input.agent_type != null;
 
   // ─── Route and format response ───
-  const decision = routePreToolUse(tool, toolInput, projectDir, "claude-code", getSessionId(input));
+  const decision = routePreToolUse(tool, toolInput, projectDir, "claude-code", getSessionId(input), {
+    mcpToolsAvailable: !isSubagentContext,
+  });
   const response = formatDecision("claude-code", decision);
 
   // ─── Write latency marker for cross-hook timing (Category 27) ───

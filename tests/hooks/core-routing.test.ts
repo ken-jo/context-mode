@@ -26,6 +26,7 @@ let routePreToolUse: (
   projectDir?: string,
   platform?: string,
   sessionId?: string,
+  options?: { mcpToolsAvailable?: boolean },
 ) => {
   action: string;
   reason?: string;
@@ -396,6 +397,24 @@ describe("routePreToolUse", () => {
       const result = routePreToolUse("mcp_web_fetch", { url: "https://example.com" });
       expect(result).toBeNull();
     });
+
+    it("passes WebFetch through when the caller context cannot invoke ctx_* tools (#794)", () => {
+      const result = routePreToolUse(
+        "WebFetch",
+        { url: "https://example.com" },
+        undefined,
+        "claude-code",
+        "subagent-webfetch",
+        { mcpToolsAvailable: false },
+      );
+      expect(result).toBeNull();
+    });
+
+    it("Claude Code pretooluse marks subagent hook payloads as ctx_* unavailable (#794)", () => {
+      const src = readFileSync(resolve("hooks", "pretooluse.mjs"), "utf-8");
+      expect(src).toContain("input.agent_id != null || input.agent_type != null");
+      expect(src).toContain("mcpToolsAvailable: !isSubagentContext");
+    });
   });
 
   // ─── MCP readiness: all redirects degrade gracefully (#230) ───
@@ -451,6 +470,21 @@ describe("routePreToolUse", () => {
       const t = (name: string) => `mcp__test__${name}`;
       const block = createRoutingBlock(t);
       expect(block).toContain("<ctx_commands>");
+    });
+
+    it("passes Agent through when Agent prompt injection is disabled (#832)", () => {
+      const previous = process.env.CONTEXT_MODE_DISABLE_AGENT_INJECTION;
+      process.env.CONTEXT_MODE_DISABLE_AGENT_INJECTION = "1";
+      try {
+        const result = routePreToolUse("Agent", {
+          prompt: "Research this repository",
+          subagent_type: "general-purpose",
+        });
+        expect(result).toBeNull();
+      } finally {
+        if (previous === undefined) delete process.env.CONTEXT_MODE_DISABLE_AGENT_INJECTION;
+        else process.env.CONTEXT_MODE_DISABLE_AGENT_INJECTION = previous;
+      }
     });
   });
 

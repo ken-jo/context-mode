@@ -410,10 +410,25 @@ describe("routePreToolUse", () => {
       expect(result).toBeNull();
     });
 
-    it("Claude Code pretooluse marks subagent hook payloads as ctx_* unavailable (#794)", () => {
-      const src = readFileSync(resolve("hooks", "pretooluse.mjs"), "utf-8");
-      expect(src).toContain("input.agent_id != null || input.agent_type != null");
-      expect(src).toContain("mcpToolsAvailable: !isSubagentContext");
+    it("Claude Code pretooluse treats subagent hook payloads as ctx_* unavailable (#794)", async () => {
+      const main = await spawnPreToolUseHook({
+        tool_name: "WebFetch",
+        tool_input: { url: "https://example.com" },
+        session_id: "core-routing-main-webfetch",
+      });
+      expect(main.status).toBe(0);
+      expect(main.parsed?.hookSpecificOutput?.permissionDecision).toBe("deny");
+      expect(main.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain("ctx_fetch_and_index");
+
+      const subagent = await spawnPreToolUseHook({
+        tool_name: "WebFetch",
+        tool_input: { url: "https://example.com" },
+        session_id: "core-routing-subagent-webfetch",
+        agent_id: "agent-794",
+        agent_type: "claude-code-guide",
+      });
+      expect(subagent.status).toBe(0);
+      expect(subagent.stdout).toBe("");
     });
   });
 
@@ -436,6 +451,26 @@ describe("routePreToolUse", () => {
       try { unlinkSync(mcpSentinel); } catch {}
       const result = routePreToolUse("Bash", { command: "./gradlew build" });
       expect(result).toBeNull();
+    });
+
+    it("allows MCP-backed redirects when the caller context cannot invoke ctx_* tools", () => {
+      const cases = [
+        ["Bash", { command: "curl https://example.com" }],
+        ["Bash", { command: "node -e \"fetch('https://example.com')\"" }],
+        ["Bash", { command: "./gradlew build" }],
+      ] as const;
+
+      for (const [tool, input] of cases) {
+        const result = routePreToolUse(
+          tool,
+          input,
+          undefined,
+          "claude-code",
+          `subagent-${tool}`,
+          { mcpToolsAvailable: false },
+        );
+        expect(result).toBeNull();
+      }
     });
   });
 
@@ -1175,6 +1210,25 @@ async function spawnRoutingProbe(
 ): Promise<{ status: number | null; stdout: string; parsed: any }> {
   const { spawnSync } = await import("node:child_process");
   const r = spawnSync("node", ["--input-type=module", "-e", code], {
+    encoding: "utf-8",
+    timeout: 15_000,
+    env: { ...process.env, ...env },
+  });
+  const stdout = (r.stdout ?? "").trim();
+  let parsed: any = null;
+  try { parsed = JSON.parse(stdout); } catch { /* surface raw */ }
+  return { status: r.status, stdout, parsed };
+}
+
+async function spawnPreToolUseHook(
+  input: Record<string, unknown>,
+  env: Record<string, string> = {},
+): Promise<{ status: number | null; stdout: string; parsed: any }> {
+  const { spawnSync } = await import("node:child_process");
+  const repoRoot = resolve(SLICE4_DIRNAME, "..", "..");
+  const r = spawnSync(process.execPath, ["hooks/pretooluse.mjs"], {
+    cwd: repoRoot,
+    input: JSON.stringify(input),
     encoding: "utf-8",
     timeout: 15_000,
     env: { ...process.env, ...env },

@@ -451,6 +451,32 @@ export function detectPlatform(clientInfo?: { name: string; version?: string }):
   // gated on a context-mode-written file (NOT a bare `~/.copilot/` directory),
   // so a Claude Code user who merely co-installed GitHub Copilot CLI — but has
   // not configured context-mode for it — is NOT pulled away from ~/.claude.
+  // GitHub Copilot CLI's config root is relocatable via COPILOT_HOME (the
+  // documented relocation env, incl. on Windows), so the marker must honor it —
+  // not just ~/.copilot. Mirrors copilotCliHome() in copilot-cli/index.ts.
+  const copilotHome = (() => {
+    const raw = process.env.COPILOT_HOME;
+    if (raw && raw.trim() !== "") {
+      return raw.startsWith("~") ? resolve(home, raw.replace(/^~[/\\]?/, "")) : resolve(raw);
+    }
+    return resolve(home, ".copilot");
+  })();
+  const copilotConfigured =
+    existsSync(resolve(copilotHome, "mcp-config.json")) ||
+    existsSync(resolve(copilotHome, "hooks", "context-mode.json"));
+
+  // A non-empty COPILOT_HOME is an explicit user/session selection, not a
+  // passive co-install marker. Respect it before agy's global markers so a
+  // Copilot doctor run in an isolated COPILOT_HOME is not stolen by an
+  // unrelated ~/.local/bin/agy or ~/.gemini/config/mcp_config.json.
+  if (process.env.COPILOT_HOME?.trim() && copilotConfigured) {
+    return {
+      platform: "copilot-cli",
+      confidence: "medium",
+      reason: "context-mode config in explicit COPILOT_HOME exists (mcp-config.json or hooks/context-mode.json)",
+    };
+  }
+
   if (
     existsSync(resolve(home, ".local", "bin", "agy")) ||
     existsSync(resolve(home, ".gemini", "antigravity-cli")) ||
@@ -464,20 +490,7 @@ export function detectPlatform(clientInfo?: { name: string; version?: string }):
     };
   }
 
-  // GitHub Copilot CLI's config root is relocatable via COPILOT_HOME (the
-  // documented relocation env, incl. on Windows), so the marker must honor it —
-  // not just ~/.copilot. Mirrors copilotCliHome() in copilot-cli/index.ts.
-  const copilotHome = (() => {
-    const raw = process.env.COPILOT_HOME;
-    if (raw && raw.trim() !== "") {
-      return raw.startsWith("~") ? resolve(home, raw.replace(/^~[/\\]?/, "")) : resolve(raw);
-    }
-    return resolve(home, ".copilot");
-  })();
-  if (
-    existsSync(resolve(copilotHome, "mcp-config.json")) ||
-    existsSync(resolve(copilotHome, "hooks", "context-mode.json"))
-  ) {
+  if (copilotConfigured) {
     return {
       platform: "copilot-cli",
       confidence: "medium",

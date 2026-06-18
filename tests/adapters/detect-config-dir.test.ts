@@ -201,6 +201,19 @@ describe("detectPlatform — config directory branches", () => {
     expect(signal.confidence).toBe("medium");
   });
 
+  it("explicit COPILOT_HOME config beats passive agy markers", () => {
+    process.env.COPILOT_HOME = resolve(home, "isolated-copilot");
+    existsSyncMock.mockImplementation(
+      ((p: unknown) =>
+        p === resolve(home, "isolated-copilot", "mcp-config.json") ||
+        p === resolve(home, ".local", "bin", "agy") ||
+        p === resolve(home, ".gemini", "config", "mcp_config.json")) as typeof fs.existsSync,
+    );
+    const signal = detectPlatform();
+    expect(signal.platform).toBe("copilot-cli");
+    expect(signal.confidence).toBe("medium");
+  });
+
   // Regression guard (detection-ordering review): a BARE ~/.copilot/ directory
   // (GitHub Copilot CLI co-installed but context-mode NOT configured there)
   // must NOT outrank ~/.claude — only context-mode-written files under

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { resolve, join } from "node:path";
-import { readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { CopilotCliAdapter, copilotCliMcpConfigPath } from "../../src/adapters/copilot-cli/index.js";
 import { HOOK_TYPES, HOOK_SCRIPTS, buildHookCommand } from "../../src/adapters/copilot-cli/hooks.js";
 
@@ -169,6 +169,58 @@ describe("CopilotCliAdapter", () => {
         fix: "copilot mcp add context-mode -- context-mode",
       });
     });
+
+    it("passes MCP registration when running from the Copilot plugin bundle", () => {
+      process.env.CONTEXT_MODE_COPILOT_PLUGIN = "1";
+      rmSync(copilotCliMcpConfigPath(), { force: true });
+
+      expect(adapter.checkPluginRegistration()).toMatchObject({
+        check: "MCP registration",
+        status: "pass",
+        message: expect.stringContaining("Copilot CLI plugin bundle"),
+      });
+    });
+
+    it("treats user-level Copilot config as standalone for version comparison", () => {
+      mkdirSync(resolve(homedir(), ".copilot"), { recursive: true });
+      rmSync(copilotCliMcpConfigPath(), { force: true });
+      rmSync(adapter.getSettingsPath(), { force: true });
+      expect(adapter.getInstalledVersion()).toBe("not installed");
+
+      mkdirSync(resolve(homedir(), ".copilot", "hooks"), { recursive: true });
+      adapter.configureAllHooks("/any/plugin/root");
+
+      expect(adapter.getInstalledVersion()).toBe("standalone");
+    });
+  });
+
+  describe("doctor hook validation", () => {
+    it("validates all six user-level Copilot hook events", () => {
+      rmSync(adapter.getSettingsPath(), { force: true });
+      adapter.configureAllHooks("/any/plugin/root");
+
+      const results = adapter.validateHooks("/any/plugin/root");
+      expect(results.find((r) => r.check === "Hooks schema version")).toMatchObject({ status: "pass" });
+      for (const hookName of Object.values(HOOK_TYPES)) {
+        expect(results.find((r) => r.check === `${hookName} hook`)).toMatchObject({
+          status: "pass",
+        });
+      }
+    });
+
+    it("validates the bundled plugin hooks when the MCP came from the Copilot plugin", () => {
+      process.env.CONTEXT_MODE_COPILOT_PLUGIN = "1";
+      rmSync(adapter.getSettingsPath(), { force: true });
+
+      const results = adapter.validateHooks(process.cwd());
+      expect(results.find((r) => r.check === "Hooks schema version")).toMatchObject({ status: "pass" });
+      for (const hookName of Object.values(HOOK_TYPES)) {
+        expect(results.find((r) => r.check === `${hookName} hook`)).toMatchObject({
+          status: "pass",
+          message: expect.stringContaining("plugin bundle"),
+        });
+      }
+    });
   });
 });
 
@@ -222,6 +274,7 @@ describe("configs/copilot-cli — GitHub Copilot CLI plugin bundle", () => {
     // Claude Code is co-installed (otherwise ~/.claude wins and writes Claude's
     // config instead of Copilot's).
     expect(server?.env?.CONTEXT_MODE_PLATFORM).toBe("copilot-cli");
+    expect(server?.env?.CONTEXT_MODE_COPILOT_PLUGIN).toBe("1");
   });
 
   it("ships the routing skill at skills/context-mode/SKILL.md", () => {

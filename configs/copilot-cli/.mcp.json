@@ -4,7 +4,8 @@
       "command": "context-mode",
       "args": [],
       "env": {
-        "CONTEXT_MODE_PLATFORM": "copilot-cli"
+        "CONTEXT_MODE_PLATFORM": "copilot-cli",
+        "CONTEXT_MODE_COPILOT_PLUGIN": "1"
       }
     }
   }

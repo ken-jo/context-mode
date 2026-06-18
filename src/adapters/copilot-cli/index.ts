@@ -41,6 +41,24 @@ import {
   buildHookCommand as buildCopilotHookCommand,
 } from "./hooks.js";
 
+const COPILOT_PLUGIN_ENV = "CONTEXT_MODE_COPILOT_PLUGIN";
+
+function isCopilotPluginRuntime(): boolean {
+  return process.env[COPILOT_PLUGIN_ENV] === "1";
+}
+
+function copilotPluginHooksPath(pluginRoot: string): string {
+  return resolve(pluginRoot, "configs", "copilot-cli", "hooks.json");
+}
+
+function readHookConfig(path: string): Record<string, unknown> {
+  return parseJsonc<Record<string, unknown>>(readFileSync(path, "utf-8")) ?? {};
+}
+
+function hasHook(hooks: Record<string, unknown> | undefined, hookName: string): boolean {
+  return Array.isArray(hooks?.[hookName]) && (hooks?.[hookName] as unknown[]).length > 0;
+}
+
 export function copilotCliHome(): string {
   const raw = process.env.COPILOT_HOME;
   if (raw && raw.trim() !== "") {
@@ -287,40 +305,47 @@ export class CopilotCliAdapter extends CopilotBaseAdapter {
     return response.context ? { additionalContext: response.context } : undefined;
   }
 
-  validateHooks(_pluginRoot: string): DiagnosticResult[] {
+  validateHooks(pluginRoot: string): DiagnosticResult[] {
     const results: DiagnosticResult[] = [];
+    const pluginRuntime = isCopilotPluginRuntime();
+    const settingsPath = pluginRuntime ? copilotPluginHooksPath(pluginRoot) : this.getSettingsPath();
+    const settingsLabel = pluginRuntime
+      ? `Copilot CLI plugin bundle hooks.json (${settingsPath})`
+      : settingsPath;
+    const fix = pluginRuntime
+      ? "copilot plugin install mksglu/context-mode:configs/copilot-cli"
+      : "context-mode upgrade";
 
     try {
-      const raw = readFileSync(this.getSettingsPath(), "utf-8");
-      const config = parseJsonc<Record<string, unknown>>(raw) ?? {};
+      const config = readHookConfig(settingsPath);
       const hooks = config.hooks as Record<string, unknown> | undefined;
 
       results.push({
         check: "Hooks schema version",
         status: config.version === 1 ? "pass" : "fail",
         message: config.version === 1
-          ? 'context-mode.json declares the required "version": 1'
-          : 'context-mode.json is missing top-level "version": 1',
-        ...(config.version === 1 ? {} : { fix: "context-mode upgrade" }),
+          ? `${settingsLabel} declares the required "version": 1`
+          : `${settingsLabel} is missing top-level "version": 1`,
+        ...(config.version === 1 ? {} : { fix }),
       });
 
-      for (const hookName of [COPILOT_HOOK_NAMES.PRE_TOOL_USE, COPILOT_HOOK_NAMES.SESSION_START]) {
-        const configured = Array.isArray(hooks?.[hookName]) && (hooks?.[hookName] as unknown[]).length > 0;
+      for (const hookName of Object.values(COPILOT_HOOK_NAMES)) {
+        const configured = hasHook(hooks, hookName);
         results.push({
           check: `${hookName} hook`,
           status: configured ? "pass" : "fail",
           message: configured
-            ? `${hookName} hook configured in ${this.getSettingsPath()}`
-            : `${hookName} not found in ${this.getSettingsPath()}`,
-          ...(configured ? {} : { fix: "context-mode upgrade" }),
+            ? `${hookName} hook configured in ${settingsLabel}`
+            : `${hookName} not found in ${settingsLabel}`,
+          ...(configured ? {} : { fix }),
         });
       }
     } catch {
       results.push({
         check: "Hook configuration",
         status: "fail",
-        message: `Could not read ${this.getSettingsPath()}`,
-        fix: "context-mode upgrade",
+        message: `Could not read ${settingsLabel}`,
+        fix,
       });
     }
 
@@ -328,6 +353,13 @@ export class CopilotCliAdapter extends CopilotBaseAdapter {
   }
 
   checkPluginRegistration(): DiagnosticResult {
+    if (isCopilotPluginRuntime()) {
+      return {
+        check: "MCP registration",
+        status: "pass",
+        message: "context-mode loaded from the Copilot CLI plugin bundle",
+      };
+    }
     try {
       const raw = readFileSync(copilotCliMcpConfigPath(), "utf-8");
       const config = parseJsonc<Record<string, unknown>>(raw) ?? {};
@@ -358,8 +390,11 @@ export class CopilotCliAdapter extends CopilotBaseAdapter {
   }
 
   getInstalledVersion(): string {
+    // Copilot's user-level MCP config and local/plugin-dir bundle do not expose
+    // a durable installed plugin version to this process. The npm package
+    // version is already checked above, so avoid the false `vconfigured` WARN.
     return existsSync(copilotCliMcpConfigPath()) || existsSync(this.getSettingsPath())
-      ? "configured"
+      ? "standalone"
       : "not installed";
   }
 }

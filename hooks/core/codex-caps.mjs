@@ -33,8 +33,24 @@ const CACHE_FILE = "context-mode-codex-caps.json";
 
 /** Parse a `codex --version` line ("codex-cli 0.141.0") → [major, minor, patch]. */
 export function parseCodexVersion(raw) {
-  const m = String(raw ?? "").match(/(\d+)\.(\d+)\.(\d+)/);
-  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+  const s = String(raw ?? "");
+  const isDigit = (c) => c >= "0" && c <= "9";
+  for (let i = 0; i < s.length; i++) {
+    let j = i;
+    const parts = [];
+    while (parts.length < 3) {
+      const start = j;
+      while (j < s.length && isDigit(s[j])) j++;
+      if (j === start) break; // no digits where a number was expected
+      parts.push(Number(s.slice(start, j)));
+      if (parts.length < 3) {
+        if (s[j] !== ".") break; // separator must be a dot
+        j++;
+      }
+    }
+    if (parts.length === 3) return parts;
+  }
+  return null;
 }
 
 /** Semantic ">=" over [major, minor, patch] tuples. */

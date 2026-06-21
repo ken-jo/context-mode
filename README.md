@@ -332,7 +332,7 @@ The bundle's `.mcp.json` pins `CONTEXT_MODE_PLATFORM=copilot-cli`, so context-mo
    copilot mcp add context-mode -- context-mode
    ```
 
-3. Configure hooks in `~/.copilot/hooks/context-mode.json` (or `$COPILOT_HOME/hooks/context-mode.json`). The Copilot CLI hooks schema **requires** the top-level `"version": 1` and uses flat `{ "type": "command", "command": "..." }` entries. Copilot CLI fires six events context-mode uses:
+3. Configure hooks in `~/.copilot/hooks/context-mode.json` (or `$COPILOT_HOME/hooks/context-mode.json`). The config uses flat `{ "type": "command", "command": "..." }` entries; context-mode also writes a top-level `"version": 1`, but that field is **optional** — the Copilot CLI accepts hook configs that omit it (it is pinned only for self-documentation). Copilot CLI fires six events context-mode uses:
 
    ```json
    {
@@ -1254,7 +1254,7 @@ Session continuity requires 5 hooks working together:
 | **PreToolUse** | Enforces sandbox routing before tool execution | Yes | -- | -- | -- | Yes | Yes | -- | -- | -- | Yes | -- | Bounded | Yes | -- | ✓ (via tool_call event) | ✓ (via tool_call event) |
 | **PostToolUse** | Captures events after each tool call | Yes | Yes | Yes | Yes | Yes | Yes | Plugin | Plugin | Plugin | Yes | -- | Yes (capture-only) | Yes | -- | ✓ (via tool_result event) | ✓ (via tool_result event) |
 | **UserPromptSubmit** | Captures user decisions and corrections | Yes | -- | -- | -- | Yes | -- | Plugin (via chat.message) | Plugin (via chat.message) | -- | Yes | -- | -- | -- | -- | -- | -- |
-| **Stop** | Captures assistant turn-end state | Yes | -- | -- | -- | Yes | Yes | -- | -- | -- | Yes | -- | Yes | -- | -- | -- | -- |
+| **Stop** | Captures assistant turn-end state | Yes | -- | -- | -- | Yes | Yes | -- | -- | -- | Yes | -- | Best-effort | -- | -- | -- | -- |
 | **PreCompact** | Builds snapshot before compaction | Yes | Yes | Yes | Yes | Yes | -- | Plugin | Plugin | Plugin | Yes | -- | -- | -- | -- | ✓ (via session_before_compact) | ✓ (via session_before_compact) |
 | **SessionStart** | Restores state after compaction or resume | Yes | Yes | Yes | Yes | Yes | -- | ✓ (via experimental.chat.system.transform) | ✓ (via experimental.chat.system.transform) | Plugin | Yes | -- | -- | -- | -- | ✓ (via session_start event) | ✓ (via session_start event) |
 | | **Session completeness** | **Full** | **High** | **High** | **High** | **High** | **Partial** | **Full** | **Full** | **High** | **Partial** | **--** | **Partial** | **Partial** | **--** | **High** | **High** |

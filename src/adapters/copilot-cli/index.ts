@@ -7,13 +7,14 @@
  *   - Hooks: $COPILOT_HOME/hooks/context-mode.json or
  *            ~/.copilot/hooks/context-mode.json.
  *
- * Hooks use Copilot CLI's camelCase event keys (preToolUse / postToolUse /
- * sessionStart / userPromptSubmitted / agentStop / preCompact — verified
- * against the @github/copilot 1.0.60 binary; PascalCase aliases do NOT exist
- * and are silently ignored) with flat `{ type, command }` entries. Copilot
- * CLI's command output contract is top-level (`permissionDecision`,
- * `modifiedArgs`, `additionalContext`), so this adapter overrides the response
- * formatter from CopilotBaseAdapter.
+ * Hooks use Copilot CLI's native camelCase event keys (preToolUse /
+ * postToolUse / sessionStart / userPromptSubmitted / agentStop / preCompact)
+ * with flat `{ type, command }` entries. (The CLI also accepts PascalCase
+ * event names alongside camelCase — copilot-cli changelog.md:1065 — so the
+ * casing is not load-bearing; we use camelCase because it is the CLI's native
+ * naming.) Copilot CLI's command output contract is top-level
+ * (`permissionDecision`, `modifiedArgs`, `additionalContext`), so this adapter
+ * overrides the response formatter from CopilotBaseAdapter.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -100,8 +101,12 @@ export class CopilotCliAdapter extends CopilotBaseAdapter {
       if (match) return match[1];
     }
     if (raw.conversation_id) return raw.conversation_id;
-    if (input.sessionId) return input.sessionId;
+    // `session_id` (snake_case) is the field Copilot CLI documents in its hook
+    // payloads (copilot-cli changelog.md:811). Prefer it; `sessionId` (camelCase)
+    // is kept only as a defensive fallback for non-standard payload shapes and is
+    // not a documented Copilot CLI field.
     if (raw.session_id) return raw.session_id;
+    if (input.sessionId) return input.sessionId;
     return `pid-${process.ppid}`;
   }
 
@@ -182,9 +187,11 @@ export class CopilotCliAdapter extends CopilotBaseAdapter {
   // Copilot extensions that share CopilotBaseAdapter:
   //   - hook entries are FLAT `{ type: "command", command }` — NOT the
   //     Claude-Code nested `{ matcher, hooks: [...] }` shape the base emits, and
-  //   - the file MUST carry a top-level `"version": 1` or the CLI runtime
-  //     rejects it and the hooks never fire
-  //     (docs.github.com/en/copilot/reference/hooks-configuration).
+  //   - we emit a top-level `"version": 1`. This is OPTIONAL, not mandatory:
+  //     the Copilot CLI accepts hook config files that omit the version field
+  //     (copilot-cli changelog.md:1109). We still write version:1 to pin the
+  //     schema explicitly — it is harmless and self-documenting, NOT a
+  //     hooks-never-fire requirement.
   // The shared base also hardcodes `mkdir .github/hooks` and writes there, but
   // this adapter's settings live at ~/.copilot/hooks/context-mode.json, so
   // writeSettings is overridden to create the real parent directory. All three
@@ -235,7 +242,8 @@ export class CopilotCliAdapter extends CopilotBaseAdapter {
       }
     }
 
-    // Absence of the required top-level version is itself drift.
+    // We pin version:1 explicitly (optional per copilot-cli changelog.md:1109,
+    // but self-documenting); treat a missing/mismatched value as drift to repair.
     if (settings.version !== 1) {
       changes.push("Set hooks schema version to 1");
     }

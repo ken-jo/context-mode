@@ -97,7 +97,9 @@ describe("CopilotCliAdapter", () => {
         version?: number;
         hooks?: Record<string, Array<{ type?: string; command?: string; hooks?: unknown }>>;
       };
-      // GitHub Copilot CLI rejects the file without a top-level version:1.
+      // We pin a top-level version:1 explicitly. Per copilot-cli
+      // changelog.md:1109 the version field is OPTIONAL (the CLI accepts files
+      // that omit it); we still emit it to make the schema self-documenting.
       expect(written.version).toBe(1);
       expect(written.hooks?.[HOOK_TYPES.PRE_TOOL_USE]?.[0]).toEqual({
         type: "command",
@@ -303,8 +305,10 @@ describe("configs/copilot-cli — GitHub Copilot CLI plugin bundle", () => {
     expect(hooks.version).toBe(1);
     // preToolUse (routing/veto) + sessionStart are the required pair; the rest
     // are capture. All six dispatch the global binary, not a bundled script.
-    // Event keys are Copilot's camelCase (PascalCase never fires on 1.0.60);
-    // the dispatch token (arg) is the lowercase .mjs script base, decoupled.
+    // Event keys are Copilot's native camelCase. (PascalCase is also accepted
+    // and fires — copilot-cli changelog.md:1065 — so casing is not load-bearing;
+    // we use camelCase as the CLI's native naming.) The dispatch token (arg) is
+    // the lowercase .mjs script base, decoupled from the event casing.
     for (const [event, arg] of [
       ["preToolUse", "pretooluse"],
       ["postToolUse", "posttooluse"],

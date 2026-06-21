@@ -1,14 +1,16 @@
 /**
  * adapters/copilot-cli/hooks — GitHub Copilot CLI hook definitions.
  *
- * GitHub Copilot CLI dispatches hooks by camelCase event names ONLY — verified
- * against the @github/copilot 1.0.60 binary, whose hook table contains
+ * GitHub Copilot CLI's native hook events are the camelCase names
  * preToolUse / postToolUse / sessionStart / userPromptSubmitted / agentStop /
- * preCompact and NO PascalCase (VS Code-style) aliases. PascalCase keys are
- * silently ignored, so the routing/capture hooks never fire. The event-name
- * KEYS below are therefore camelCase; the CLI dispatch token (the `.mjs` script
- * base, e.g. `pretooluse`) is independent and stays lowercase via
- * buildHookCommand, so changing the event casing does not change the dispatcher.
+ * preCompact. Per the copilot-cli changelog, PascalCase event names are ALSO
+ * accepted and fire — the CLI loads hook configs across VS Code, Claude Code,
+ * and the CLI by accepting PascalCase event names alongside camelCase
+ * (copilot-cli changelog.md:1065; see also :811 and :1081). We register the
+ * camelCase KEYS below because they are the CLI's native names, not because
+ * PascalCase would fail. The CLI dispatch token (the `.mjs` script base, e.g.
+ * `pretooluse`) is independent and stays lowercase via buildHookCommand, so
+ * changing the event casing does not change the dispatcher.
  */
 
 export const HOOK_TYPES = {

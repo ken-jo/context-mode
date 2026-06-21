@@ -1,7 +1,12 @@
 /**
  * Shared Antigravity CLI (`agy`) hook payload normalization.
  *
- * agy sends hook payloads as:
+ * The only refs-backed field is the working directory: the upstream hook example
+ * (refs/platforms/antigravity-cli/examples/title/title.sh:10, README.md:11)
+ * reads it from `workspace.current_dir` (an OBJECT field). We read that FIRST.
+ *
+ * The remaining fields below are empirically-derived/UNVERIFIED — no upstream
+ * agy doc or example confirms this shape; they are best-effort assumptions:
  *   { conversationId, stepIdx, toolCall: { name, args }, error,
  *     workspacePaths: [..], transcriptPath, artifactDirectoryPath }
  *
@@ -19,6 +24,13 @@ export function parseAgyPayload(raw) {
 }
 
 export function getAgyProjectDir(payload) {
+  // Refs-backed FIRST: workspace.current_dir is the only upstream-documented
+  // field (examples/title/title.sh:10). `workspacePaths[0]` is an unverified
+  // fallback kept defensively.
+  const workspace = payload?.workspace;
+  if (workspace && typeof workspace === "object" && typeof workspace.current_dir === "string" && workspace.current_dir) {
+    return workspace.current_dir;
+  }
   return Array.isArray(payload?.workspacePaths) && payload.workspacePaths.length > 0
     ? String(payload.workspacePaths[0])
     : undefined;

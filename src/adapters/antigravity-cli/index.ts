@@ -81,6 +81,16 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function agyProjectDir(raw: Record<string, unknown>): string | undefined {
+  // Refs-backed FIRST: the only real upstream hook-payload example
+  // (refs/platforms/antigravity-cli/examples/title/title.sh:10, README.md:11)
+  // reads the working directory from `workspace.current_dir` — an OBJECT field,
+  // not an array. Prefer it.
+  const workspace = asRecord(raw.workspace);
+  if (typeof workspace.current_dir === "string" && workspace.current_dir) {
+    return workspace.current_dir;
+  }
+  // Fallback: `workspacePaths[0]` is empirically-derived/unverified (no upstream
+  // doc or example confirms this shape) — retained as a defensive fallback only.
   const workspacePaths = raw.workspacePaths;
   return Array.isArray(workspacePaths) && workspacePaths.length > 0
     ? String(workspacePaths[0])
@@ -88,6 +98,9 @@ function agyProjectDir(raw: Record<string, unknown>): string | undefined {
 }
 
 function agySessionId(raw: Record<string, unknown>): string {
+  // `conversationId` is empirically-derived/unverified — no upstream agy doc or
+  // example confirms a session-id field in the hook payload. Kept as the
+  // best-available identifier; falls back to the process id when absent.
   return typeof raw.conversationId === "string" && raw.conversationId
     ? raw.conversationId
     : `pid-${process.ppid}`;

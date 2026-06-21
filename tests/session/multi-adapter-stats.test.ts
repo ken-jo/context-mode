@@ -13,7 +13,7 @@
  * Cited code:
  *   src/session/analytics.ts:592-731  — current getLifetimeStats (single-dir)
  *   src/session/analytics.ts:887-989  — current getRealBytesStats (single-dir)
- *   src/adapters/detect.ts:92-111     — getSessionDirSegments map (15 platforms)
+ *   src/adapters/detect.ts:92-111     — getSessionDirSegments map (17 platforms)
  *
  * Filter (decided in /diagnose conversation, B3a PRD):
  *   real = eventCount >= 100

@@ -76,6 +76,37 @@ function getExternalMcpNudgeEvery() {
   return parsed;
 }
 
+// #817: size threshold so small Bash calls skip the routing nudge.
+//
+// PreToolUse fires BEFORE the command runs, so the actual output size is
+// unknowable here. The only deterministic pre-execution signal is the command
+// string itself. The Gemini CLI adapter solves the same over-interception
+// problem with a matcher that only fires on large-output tools — "avoids
+// unnecessary hook overhead on lightweight tools" (README). We mirror that at
+// the routing layer: when CONTEXT_MODE_BASH_NUDGE_MIN_COMMAND_BYTES is set to
+// N>0, an unbounded Bash command whose UTF-8 byte length is below N is treated
+// as expected-lightweight and the generic routing nudge is suppressed.
+//
+// Default is 0 (unset) → CURRENT BEHAVIOR: every unbounded command is nudged.
+// This preserves the context-saving guarantee for large outputs by default —
+// the threshold is strictly opt-in. Bounds [0, 100000]; invalid/zero/negative
+// values fall back to 0 (disabled). The threshold gates ONLY the generic Bash
+// nudge — curl/wget, inline-HTTP, and build-tool redirects run earlier and are
+// never relaxed, because those are deterministic floods regardless of command
+// length.
+const BASH_NUDGE_MIN_BYTES_ENV = "CONTEXT_MODE_BASH_NUDGE_MIN_COMMAND_BYTES";
+const BASH_NUDGE_MIN_BYTES_MAX = 100_000;
+
+function getBashNudgeMinCommandBytes() {
+  const raw = process.env[BASH_NUDGE_MIN_BYTES_ENV];
+  if (raw == null || raw === "") return 0;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > BASH_NUDGE_MIN_BYTES_MAX) {
+    return 0;
+  }
+  return parsed;
+}
+
 function defaultGuidanceId() {
   return process.env.VITEST_WORKER_ID
     ? `${process.ppid}-w${process.env.VITEST_WORKER_ID}`
@@ -791,6 +822,17 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform, sessi
     // Conservative: any pipe/redirect/chain disqualifies, unknown commands
     // still get the nudge.
     if (isStructurallyBounded(command)) {
+      return null;
+    }
+
+    // #817: opt-in size threshold. When the operator configures
+    // CONTEXT_MODE_BASH_NUDGE_MIN_COMMAND_BYTES, a short unbounded command is
+    // treated as expected-lightweight and passes through untouched — reserving
+    // the nudge for commands large/complex enough to plausibly flood context.
+    // Default (0) preserves current behavior, so large-output savings are not
+    // weakened unless the operator explicitly opts in.
+    const minCommandBytes = getBashNudgeMinCommandBytes();
+    if (minCommandBytes > 0 && Buffer.byteLength(command, "utf8") < minCommandBytes) {
       return null;
     }
 

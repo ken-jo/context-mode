@@ -473,9 +473,40 @@ function bunVersionAtLeast1(versionOutput: string): boolean {
  *     reason.
  *   - `ctx_upgrade` — separate path, must stay on Node for the same reason.
  */
+/**
+ * Liveness-guarded Node path for the hook-runtime fallback (issue #841).
+ *
+ * `process.execPath` is pinned into every baked hook command because PATH
+ * resolution is unreliable for hooks (#190 snap-Node re-invokes the wrapper;
+ * #369 Windows Git Bash / MSYS can't resolve a bare `node`). But under a
+ * version manager (mise / asdf / nvm) execPath is a *version-pinned* absolute
+ * path — e.g. `~/.local/share/mise/installs/node/20.1.0/bin/node`. A routine
+ * `mise upgrade node` installs the next patch and DELETES the 20.1.0 dir, so
+ * the cached path dangles and every hook spawn fails with ENOENT — silently
+ * killing context-mode for that user.
+ *
+ * Same liveness-guard shape as the #800/#803 fix in
+ * {@link resolveJavascriptRuntime}: use the pinned execPath IFF it still
+ * exists on disk (preserving the #190/#369 reasons it was pinned), otherwise
+ * re-resolve a working `node` from PATH. The version manager's shim dir is on
+ * PATH and always points at the current patch, so bare `node` heals the host
+ * without a re-install. Falls back to the (stale) execPath only when no PATH
+ * node is reachable either — a strictly-better last resort than a dangling
+ * versioned path, and the doctor/upgrade flows surface the actionable error.
+ */
+function liveNodeRuntime(): HookRuntime {
+  if (existsSync(process.execPath)) {
+    return { path: process.execPath, isBun: false };
+  }
+  if (commandExists("node")) {
+    return { path: "node", isBun: false };
+  }
+  return { path: process.execPath, isBun: false };
+}
+
 export function resolveHookRuntime(): HookRuntime {
   if (_hookRuntimeCache) return _hookRuntimeCache;
-  const nodeFallback: HookRuntime = { path: process.execPath, isBun: false };
+  const nodeFallback: HookRuntime = liveNodeRuntime();
   try {
     if (!bunExists()) {
       _hookRuntimeCache = nodeFallback;

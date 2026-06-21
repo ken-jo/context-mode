@@ -1118,7 +1118,7 @@ describe("ClaudeCodeAdapter", () => {
   //
   // The HookAdapter contract grew an OPTIONAL `getHealthChecks(pluginRoot)`
   // (src/adapters/types.ts) returning HealthCheck[] — a uniform doctor
-  // surface across 15 adapters. Default behaviour: adapters that don't
+  // surface across 17 adapters. Default behaviour: adapters that don't
   // override return nothing. claude-code overrides with hook-script
   // existence checks that use DIRECT `existsSync(join(pluginRoot,
   // "hooks", scriptName))` — NO regex round-trip through extractHookScriptPath.

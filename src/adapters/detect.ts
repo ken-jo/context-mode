@@ -92,7 +92,7 @@ export function __seedClaudeCodePluginCacheMissForTests(): void {
  *
  * Issue #545 — algorithmic env-leak fix. The split allows resolveProjectDir
  * to derive ALLOW (own workspace vars) and BAN (other platforms' workspace
- * vars) sets from a single registry, satisfying MUST-3 (15 adapters equal).
+ * vars) sets from a single registry, satisfying MUST-3 (17 adapters equal).
  *
  * Issue #561 — FOREIGN identification vars MUST be scrubbed when spawning a
  * child under a different host (e.g. Pi spawning context-mode child must

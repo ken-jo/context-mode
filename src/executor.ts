@@ -110,6 +110,89 @@ const OS_TMPDIR = (() => {
   return "/tmp";
 })();
 
+/**
+ * Pure helper — exported for unit testing. Issue #782.
+ *
+ * On Windows, the sandbox shell runtime is Git Bash. A bare `mvn` invocation
+ * runs Maven's POSIX shell script, which on the `mingw=true` branch (uname →
+ * MINGW64_NT-*) fails to convert `CLASSWORLDS_JAR` from a POSIX path
+ * (`/c/tools/maven/boot/plexus-classworlds-*.jar`) to a Windows path. Native
+ * `java.exe` then can't resolve the bootstrap jar → ClassNotFoundException for
+ * `org.codehaus.plexus.classworlds.launcher.Launcher`.
+ *
+ * The third-way fix (issue Option C): rewrite the bare `mvn` token to `mvn.cmd`,
+ * the native Windows launcher that uses Windows-native paths and bypasses the
+ * broken mingw shell branch entirely. This does NOT touch the global MSYS
+ * path-conversion env (MSYS_NO_PATHCONV / MSYS2_ARG_CONV_EXCL), which #826/#791
+ * deliberately leave unset so native git.exe launched from bash keeps its
+ * /tmp→C:\ argument conversion. Re-enabling global suppression would re-break
+ * native git; rewriting only the mvn token keeps both correct.
+ *
+ * Only a `mvn` that starts a command (start of string, or after a shell
+ * separator `&& | ; ( newline`) is rewritten. `mvnw`, `mvnd`, `mymvn`,
+ * paths like `./mvnw`, and an already-`mvn.cmd` token are left untouched
+ * (the token must be exactly `mvn` followed by whitespace or end-of-string).
+ */
+export function rewriteWindowsBuildTools(
+  code: string,
+  platform: NodeJS.Platform,
+): string {
+  if (platform !== "win32") return code;
+  // Rewrite a bare `mvn` command token to `mvn.cmd` (Maven's native Windows launcher).
+  // Algorithmic (no regex): only at a command-start position (string start or right
+  // after a shell separator ; & | ( newline, skipping leading spaces/tabs) and only
+  // when the token is exactly `mvn` followed by whitespace or end — leaves
+  // mvnw / mvnd / ./mvnw / already-mvn.cmd untouched.
+  const SEP = new Set([";", "&", "|", "(", "\n"]);
+  let out = "";
+  let atStart = true;
+  let i = 0;
+  while (i < code.length) {
+    const ch = code[i];
+    if (atStart && (ch === " " || ch === "\t")) {
+      out += ch;
+      i++;
+      continue;
+    }
+    if (atStart && code.startsWith("mvn", i)) {
+      const after = code[i + 3];
+      if (after === undefined || after === " " || after === "\t" || after === "\n") {
+        out += "mvn.cmd";
+        i += 3;
+        atStart = false;
+        continue;
+      }
+    }
+    out += ch;
+    atStart = SEP.has(ch);
+    i++;
+  }
+  return out;
+}
+
+/**
+ * Remove a sandbox temp dir, retrying on Windows. Issue #788.
+ *
+ * On Windows, a child process that opened SQLite databases inside the sandbox
+ * can leave `*-wal` / `*-shm` files with handles that linger briefly after the
+ * process exits. A single `rmSync` then throws EBUSY/EPERM/ENOTEMPTY and the
+ * old silent `catch {}` swallowed it, leaking `.ctx-mode-*` directories under
+ * `%TEMP%`. Node's `rmSync({ maxRetries, retryDelay })` is purpose-built for
+ * exactly this Windows-handle race, so let it back off and retry.
+ */
+function cleanupTmpDir(tmpDir: string): void {
+  try {
+    rmSync(tmpDir, {
+      recursive: true,
+      force: true,
+      maxRetries: isWin ? 8 : 2,
+      retryDelay: 100,
+    });
+  } catch {
+    /* best-effort — OS will reclaim %TEMP% eventually */
+  }
+}
+
 /** Kill process tree — on Windows uses taskkill /T; on Unix kills the process group. */
 function killTree(proc: ReturnType<typeof spawn>): void {
   if (isWin && proc.pid) {
@@ -209,28 +292,28 @@ export class PolyglotExecutor {
         return await this.#compileAndRun(filePath, tmpDir, timeout);
       }
 
-      // Shell commands run in the project directory so git, relative paths,
-      // and other project-aware tools work naturally. Non-shell languages
-      // run in the temp directory where their script file is written.
-      // Issue #45 — `cwdOverride` lets per-call sites (Codex MCP handlers)
-      // pin shell cwd without mutating process-wide state.
-      const cwd = language === "shell"
-        ? (cwdOverride ?? this.#projectRoot)
-        : tmpDir;
+      // Every language runs in the project directory so git, relative paths,
+      // and other project-aware tools resolve naturally. The script FILE lives
+      // in the sandbox tmpDir and is passed to the runtime by absolute path
+      // (see buildCommand), so cwd is free to be the project root.
+      //
+      // Issue #788 — previously only `shell` used the project root; non-shell
+      // runtimes (python/js/ts/…) used tmpDir, so repo-relative checks like
+      // `pathlib.Path("package.json").exists()` silently failed depending on
+      // the chosen language. Unifying cwd removes that surprise.
+      // Issue #45 — `cwdOverride` lets per-call sites (Codex MCP handlers) pin
+      // cwd without mutating process-wide state.
+      const cwd = cwdOverride ?? this.#projectRoot;
       const result = await this.#spawn(cmd, cwd, tmpDir, timeout, background);
 
       // Skip tmpDir cleanup if process was backgrounded — it may still need files
       if (!result.backgrounded) {
-        try {
-          rmSync(tmpDir, { recursive: true, force: true });
-        } catch { /* ignore */ }
+        cleanupTmpDir(tmpDir);
       }
 
       return result;
     } catch (err) {
-      try {
-        rmSync(tmpDir, { recursive: true, force: true });
-      } catch { /* ignore */ }
+      cleanupTmpDir(tmpDir);
       throw err;
     }
   }
@@ -273,9 +356,13 @@ export class PolyglotExecutor {
     );
     if (language === "shell") {
       const shellPath = this.#runtimes.shell;
+      // #782 — on Windows Git Bash, rewrite bare `mvn` → `mvn.cmd` so Maven
+      // uses its native Windows launcher (correct path handling) instead of
+      // the broken mingw shell branch. No-op on non-Windows.
+      const rewritten = rewriteWindowsBuildTools(code, process.platform);
       const shellCode = isWin && isPowerShell(shellPath)
-        ? buildPowerShellScriptContent(code)
-        : code;
+        ? buildPowerShellScriptContent(rewritten)
+        : rewritten;
       writeFileSync(
         fp,
         buildShellScriptContent(shellCode, process.env.PATH, process.platform),

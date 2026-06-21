@@ -44,7 +44,7 @@ import {
   StorageDirectoryError,
 } from "../../src/session/db.js";
 import { ROUTING_BLOCK } from "../../hooks/routing-block.mjs";
-import { sanitizeSchemaForStrictClients, resolveExecTimeout, AGY_DEFAULT_EXEC_TIMEOUT_MS } from "../../src/server.js";
+import { sanitizeSchemaForStrictClients, resolveExecTimeout, AGY_DEFAULT_EXEC_TIMEOUT_MS, REGISTERED_CTX_TOOLS } from "../../src/server.js";
 import { stripJsonComments, parseJsonc } from "../../src/util/jsonc.js";
 
 // ─── Shared setup ───────────────────────────────────────────────────────────
@@ -6657,5 +6657,62 @@ describe("resolveExecTimeout (agy default execution timeout)", () => {
     process.env.CONTEXT_MODE_PLATFORM = "antigravity-cli";
     process.env.CONTEXT_MODE_AGY_EXEC_TIMEOUT_MS = "1500";
     expect(resolveExecTimeout(undefined)).toBe(1500);
+  });
+});
+
+// ─── ctx_* MCP tool annotations (#846) ───────────────────
+// "Server & tools" domain → this file owns tool registration per CONTRIBUTING.md.
+// Inspects the actual registered descriptors via the exported registry, not just
+// descriptions, so a missing/incorrect annotation fails CI.
+describe("ctx_* MCP tool annotations (#846)", () => {
+  type Hints = {
+    readOnlyHint: boolean;
+    destructiveHint: boolean;
+    idempotentHint: boolean;
+    openWorldHint: boolean;
+  };
+  // Classified by real behavior (no blanket readOnlyHint).
+  const EXPECTED: Record<string, Hints> = {
+    ctx_execute:         { readOnlyHint: false, destructiveHint: true,  idempotentHint: false, openWorldHint: true  },
+    ctx_execute_file:    { readOnlyHint: false, destructiveHint: true,  idempotentHint: false, openWorldHint: true  },
+    ctx_index:           { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    ctx_search:          { readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false },
+    ctx_fetch_and_index: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  },
+    ctx_batch_execute:   { readOnlyHint: false, destructiveHint: true,  idempotentHint: false, openWorldHint: true  },
+    ctx_stats:           { readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false },
+    ctx_doctor:          { readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false },
+    ctx_upgrade:         { readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false },
+    ctx_purge:           { readOnlyHint: false, destructiveHint: true,  idempotentHint: true,  openWorldHint: false },
+    ctx_insight:         { readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: true  },
+  };
+  const tools = REGISTERED_CTX_TOOLS as Array<{ name: string; config: { annotations?: Hints } }>;
+  const find = (name: string) => tools.find((t) => t.name === name);
+
+  test("registers exactly the expected ctx_* tools", () => {
+    expect(tools.map((t) => t.name).sort()).toEqual(Object.keys(EXPECTED).sort());
+  });
+
+  test("every ctx_* tool carries explicit annotations classified by real behavior", () => {
+    for (const [name, hints] of Object.entries(EXPECTED)) {
+      const tool = find(name);
+      expect(tool, `${name} not registered`).toBeDefined();
+      expect(tool!.config.annotations, `${name} missing annotations`).toBeDefined();
+      expect(tool!.config.annotations).toMatchObject(hints);
+    }
+  });
+
+  test("read-only diagnostic/query tools are readOnlyHint:true (the #846 cancellation fix)", () => {
+    for (const name of ["ctx_search", "ctx_stats", "ctx_doctor"]) {
+      expect(find(name)!.config.annotations!.readOnlyHint).toBe(true);
+    }
+  });
+
+  test("never blanket-marks executing/mutating/destructive tools read-only", () => {
+    for (const name of [
+      "ctx_execute", "ctx_execute_file", "ctx_batch_execute", "ctx_index",
+      "ctx_fetch_and_index", "ctx_purge", "ctx_upgrade", "ctx_insight",
+    ]) {
+      expect(find(name)!.config.annotations!.readOnlyHint).toBe(false);
+    }
   });
 });

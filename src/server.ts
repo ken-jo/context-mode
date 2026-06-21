@@ -1577,6 +1577,13 @@ server.registerTool(
   "ctx_execute",
   {
     title: "Execute Code",
+    // #846: runs arbitrary code in a sandbox with full network access.
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
     description: `Run code in a sandboxed subprocess.${bunNote} Languages: ${langList}.
 
 Think-in-Code — the core philosophy: the bytes your code processes never enter your conversation memory; only what you console.log() does. Reading a 700 KB log directly means 700 KB of your remaining reasoning capacity gets spent on raw bytes. Running code over that same log in this sandbox and printing a 3 KB summary leaves you with 697 KB of capacity for the actual work.
@@ -1963,6 +1970,13 @@ server.registerTool(
   "ctx_execute_file",
   {
     title: "Execute File Processing",
+    // #846: runs arbitrary code over a file in a sandbox with full network access.
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
     description: `Read a file into a sandboxed FILE_CONTENT variable and run code over it. Only what you console.log() enters your conversation — the file bytes stay in the sandbox.
 
 Think-in-Code applied to file-level analysis: Reading the whole file means every byte enters your conversation memory and costs reasoning capacity for the rest of the session. Running code over it here lets you keep the raw bytes out and only the derived answer in. Same principle as ctx_execute, scoped to one named file via the FILE_CONTENT variable.
@@ -2141,6 +2155,14 @@ server.registerTool(
   "ctx_index",
   {
     title: "Index Content",
+    // #846: writes content into the local FTS5 store (additive, not destructive;
+    // re-indexing the same content adds rows, so not idempotent). No network.
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
     description: `Store content in a searchable knowledge base (BM25 over FTS5). Splits markdown by headings, keeps code blocks intact, and persists the raw chunks. The full content stays in storage — retrieve any section on-demand via ctx_search; nothing is summarized or truncated.
 
 WHEN:
@@ -2426,6 +2448,13 @@ server.registerTool(
   "ctx_search",
   {
     title: "Search Indexed Content",
+    // #846: read-only query over the local FTS5 store. No mutation, no network.
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description: `Search a unified knowledge base with a multi-strategy ranking pipeline. Two parallel matchers run on every query: a Porter-stemming matcher ("caching" finds "cached", "caches", "cach") and a trigram-substring matcher ("useEff" finds "useEffect"). Their ranked lists are merged via Reciprocal Rank Fusion, so a document that ranks well in both surfaces above one that wins only on a single strategy. Multi-term queries get an additional proximity-rerank pass that boosts passages where the query terms appear close together. Typos are corrected via Levenshtein distance and re-searched. Result snippets are window-extracted around the matched terms, not blindly truncated.
 
 The knowledge base is unified: queries reach indexed content you stored (ctx_index, ctx_fetch_and_index, ctx_batch_execute output) AND auto-captured session memory written by hooks (decisions, errors, blockers, plans, user prompts, rejected approaches, tool failures, compaction guides — 26 event categories). File-backed sources carry a content hash and auto-flag staleness when the source file changes.
@@ -3281,6 +3310,13 @@ server.registerTool(
   "ctx_fetch_and_index",
   {
     title: "Fetch & Index URL(s)",
+    // #846: fetches external URLs (open world) and writes them into the store.
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
     description: `Fetches URL content, converts HTML to markdown (JSON is chunked by key paths, plain text indexed directly), persists it in a searchable knowledge base, and returns a small preview window per source. The raw page bytes never enter your conversation — they live in storage and you retrieve any section on-demand via ctx_search.
 
 Caching: every fetch is cached on disk and reused for repeat calls within the TTL window. The default TTL is 24 hours; override per-call with the \`ttl\` parameter (milliseconds, \`ttl: 0\` bypasses cache like \`force: true\`). Stored content older than 14 days is cleaned up on startup.
@@ -3540,6 +3576,13 @@ server.registerTool(
   "ctx_batch_execute",
   {
     title: "Batch Execute & Search",
+    // #846: runs arbitrary shell commands (with network) and indexes output.
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
     description: `Run multiple commands in ONE call. Every command's output is auto-indexed into the knowledge base; if you also pass \`queries\`, the matching sections come back in the same round trip so a follow-up search call is not needed.
 
 Concurrency parallelizes the FETCH phase (run-the-commands). The DERIVATION phase — turning raw output into an answer — still belongs in code: add a processing command that consumes the indexed output and prints only the answer, so the raw bytes never enter your conversation (Think-in-Code, same principle as the sandbox tool).
@@ -3791,6 +3834,13 @@ server.registerTool(
   "ctx_stats",
   {
     title: "Session Statistics",
+    // #846: read-only diagnostics. Was cancelled by Codex when unannotated.
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description:
       "Returns context consumption statistics for the current session. " +
       "Shows total bytes returned to context, breakdown by tool, call counts, " +
@@ -3977,6 +4027,14 @@ server.registerTool(
   "ctx_doctor",
   {
     title: "Run Diagnostics",
+    // #846: read-only diagnostics (runs an internal self-test, mutates nothing).
+    // Was cancelled by Codex when unannotated.
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description:
       "Diagnose context-mode installation. Runs all checks server-side and " +
       "returns a plain-text status report with [OK]/[FAIL]/[WARN] prefixes " +
@@ -4100,6 +4158,14 @@ server.registerTool(
   "ctx_upgrade",
   {
     title: "Upgrade Plugin",
+    // #846: an action tool (returns an upgrade command to run); not read-only,
+    // but non-destructive and idempotent. No direct network from the call.
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description:
       "Upgrade context-mode to the latest version. Returns a shell command to execute. " +
       "You MUST run the returned command using your shell tool (Bash, shell_execute, " +
@@ -4267,6 +4333,14 @@ server.registerTool(
   "ctx_purge",
   {
     title: "Purge Knowledge Base",
+    // #846: permanently deletes indexed content — destructive. Purging an
+    // already-purged scope has no further effect (idempotent). No network.
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     description: `DESTRUCTIVE: permanently delete indexed content. Cannot be undone. Requires confirm:true and exactly one scope.
 
 WHEN:
@@ -4630,6 +4704,14 @@ server.registerTool(
   "ctx_insight",
   {
     title: "Open Insight Dashboard",
+    // #846: opens a hosted dashboard URL in the browser — an external side
+    // effect (open world), not a read-only query; safe to repeat.
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     description:
       "Opens the context-mode Insight dashboard (https://context-mode.com/insight) in your " +
       "default browser — a dashboard launcher for the hosted analytics layer, not a Q&A engine. " +

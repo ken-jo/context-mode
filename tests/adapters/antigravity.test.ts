@@ -228,14 +228,14 @@ describe("AntigravityCliAdapter", () => {
     );
   });
 
-  it("checkPluginRegistration fails with the install:agy remediation when nothing is registered", () => {
+  it("checkPluginRegistration fails with the agy plugin install remediation when nothing is registered", () => {
     rmSync(adapter.getSettingsPath(), { force: true });
     rmSync(join(antigravityCliPluginDir(), "mcp_config.json"), { force: true });
 
     expect(adapter.checkPluginRegistration()).toMatchObject({
       check: "MCP registration",
       status: "fail",
-      fix: "npm run install:agy",
+      fix: "agy plugin install https://github.com/mksglu/context-mode/tree/main/configs/antigravity-cli",
     });
   });
 
@@ -341,20 +341,21 @@ describe("AntigravityCliAdapter", () => {
 
 /**
  * Guards the shipped agy plugin bundle (configs/antigravity-cli/), which users
- * install with `npm run install:agy` (→ `agy plugin install configs/antigravity-cli`).
+ * install in one command — `agy plugin install <github-subpath>` — with agy
+ * cloning the repo and resolving the configs/antigravity-cli subpath itself
+ * (no local clone needed).
  *
  * agy's native plugin system reads the root `plugin.json` + `mcp_config.json`
- * shape. Verified on agy 1.0.6: `agy plugin install` logs "mcpServers : 1
+ * shape. Verified on agy 1.0.6, re-verified on 1.0.10: `agy plugin install` logs "mcpServers : 1
  * processed" and registers the server — env preserved — into
  * ~/.gemini/config/plugins/<name>/mcp_config.json. `.mcp.json` and
  * `.claude-plugin/plugin.json` are intentionally not shipped here because agy
  * native validate/install does not read them.
  *
- * Like the Copilot bundle, the MCP config is committed in the plugin bundle
- * rather than generated during install.
+ * The MCP config is committed in the plugin bundle rather than generated during
+ * install.
  */
 const AGY_PLUGIN = resolve(__dirname, "..", "..", "configs", "antigravity-cli");
-const AGY_REPO_ROOT = resolve(__dirname, "..", "..");
 
 describe("configs/antigravity-cli — agy plugin bundle", () => {
   it("ships native agy plugin.json + mcp_config.json pinned to antigravity-cli", () => {
@@ -438,24 +439,5 @@ describe("configs/antigravity-cli — agy plugin bundle", () => {
     expect(existsSync(resolve(__dirname, "..", "..", "hooks", "antigravity-cli", "posttooluse.mjs"))).toBe(true);
     expect(existsSync(resolve(__dirname, "..", "..", "hooks", "antigravity-cli", "stop.mjs"))).toBe(true);
     expect(existsSync(resolve(__dirname, "..", "..", "hooks", "antigravity-cli", "payload.mjs"))).toBe(true);
-  });
-
-  it("ships the npm run install:agy one-command installer (cross-platform Node)", () => {
-    const pkg = JSON.parse(readFileSync(resolve(AGY_REPO_ROOT, "package.json"), "utf-8"));
-    // A Node installer (not bash) so `npm run install:agy` runs natively on
-    // Windows too — agy runs on Windows, so its installer must.
-    expect(pkg.scripts["install:agy"]).toContain("scripts/install-antigravity-cli-plugin.mjs");
-    expect(pkg.files).toContain("scripts/install-antigravity-cli-plugin.mjs");
-
-    const installer = resolve(AGY_REPO_ROOT, "scripts", "install-antigravity-cli-plugin.mjs");
-    expect(existsSync(installer)).toBe(true);
-    const body = readFileSync(installer, "utf-8");
-    expect(body).toContain("agy plugin install");
-    expect(body).toContain("antigravity-cli");
-    // agy caches tool schemas and never refreshes them; the installer must clear
-    // that cache (~/.gemini/antigravity-cli/mcp/context-mode) or the Gemini-safe
-    // schema fix never reaches the model.
-    expect(body).toContain("rmSync");
-    expect(body).toContain('"mcp", "context-mode"');
   });
 });

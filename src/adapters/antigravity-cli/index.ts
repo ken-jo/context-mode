@@ -48,7 +48,7 @@ export function antigravityCliHooksPath(): string {
 
 /**
  * `agy plugin install <bundle>` registers MCP + hook + skill into agy's plugin
- * profile under ~/.gemini/config/plugins/<name>/ (verified on agy 1.0.6) — the
+ * profile under ~/.gemini/config/plugins/<name>/ (verified on agy 1.0.6, re-verified 1.0.10) — the
  * canonical install. The global mcp_config.json / hooks.json paths above are the
  * manual (no-plugin) fallback. doctor must recognize BOTH.
  */
@@ -159,8 +159,9 @@ function readRegisteredHooks(paths: string[]): {
       /* unreadable/missing — try next */
     }
   }
-  // Stop is registered when possible, but agy 1.0.6 `-p` probes did not emit it.
-  // Treat it as best-effort so doctor does not mark a working Pre/Post install
+  // Stop is registered when possible, but agy 1.0.6 `-p` probes did not emit it
+  // (no Stop-hook change in agy's changelog through 1.0.10). Treat it as
+  // best-effort so doctor does not mark a working Pre/Post install
   // as degraded solely because Stop is absent.
   return { ...found, ok: found.preOk && found.postOk };
 }
@@ -298,7 +299,7 @@ export class AntigravityCliAdapter extends AntigravityAdapter {
       check: "MCP registration",
       status: "fail",
       message: "context-mode not found in Antigravity CLI mcpServers",
-      fix: "npm run install:agy",
+      fix: "agy plugin install https://github.com/mksglu/context-mode/tree/main/configs/antigravity-cli",
     };
   }
 
@@ -387,8 +388,8 @@ export class AntigravityCliAdapter extends AntigravityAdapter {
         status: ok ? "pass" : "warn",
         message: ok
           ? `PreToolUse guard and PostToolUse capture configured in ${where}${stopOk ? "; best-effort Stop hook also configured" : ""}`
-          : `Antigravity CLI hooks incomplete (${missing || "none found"} missing) — MCP tools still work, but bounded routing enforcement and session capture are degraded. Run \`npm run install:agy\` (agy plugin) or \`context-mode upgrade\` to repair hooks.`,
-        ...(ok ? {} : { fix: "npm run install:agy" }),
+          : `Antigravity CLI hooks incomplete (${missing || "none found"} missing) — MCP tools still work, but bounded routing enforcement and session capture are degraded. Run \`agy plugin install https://github.com/mksglu/context-mode/tree/main/configs/antigravity-cli\` or \`context-mode upgrade\` to repair hooks.`,
+        ...(ok ? {} : { fix: "agy plugin install https://github.com/mksglu/context-mode/tree/main/configs/antigravity-cli" }),
       },
     ];
   }

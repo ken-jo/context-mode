@@ -72,7 +72,6 @@
     "openclaw.plugin.json",
     "start.mjs",
     "scripts/postinstall.mjs",
-    "scripts/install-antigravity-cli-plugin.mjs",
     "scripts/heal-better-sqlite3.mjs",
     "scripts/heal-installed-plugins.mjs",
     "scripts/plugin-cache-integrity.mjs",
@@ -99,7 +98,6 @@
     "test:compare": "npx tsx tests/context-comparison.ts",
     "test:ecosystem": "npx tsx tests/ecosystem-benchmark.ts",
     "install:openclaw": "node -e \"if(process.platform==='win32'){console.error('OpenClaw install requires bash (Git Bash or WSL)');process.exit(1)}else{require('child_process').execSync('bash scripts/install-openclaw-plugin.sh',{stdio:'inherit'})}\"",
-    "install:agy": "node scripts/install-antigravity-cli-plugin.mjs",
     "postinstall": "node scripts/postinstall.mjs"
   },
   "dependencies": {

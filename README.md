@@ -823,9 +823,11 @@ The Codex plugin manifest provides MCP via `.codex-plugin/mcp.json`, skills via
 </details>
 
 <details>
-<summary><strong>Antigravity</strong> — MCP-only, no hooks</summary>
+<summary><strong>Antigravity IDE</strong> — MCP-only, no hooks</summary>
 
-**Prerequisites:** Node.js >= 22.5 (or Bun), Antigravity installed.
+> This is the Antigravity **desktop IDE**. For the `agy` **command-line tool**, see **Antigravity CLI (`agy`)** below — it installs as a full plugin with hooks.
+
+**Prerequisites:** Node.js >= 22.5 (or Bun), the Antigravity IDE installed.
 
 **Install:**
 
@@ -866,43 +868,28 @@ Full configs: [`configs/antigravity/mcp_config.json`](configs/antigravity/mcp_co
 <details>
 <summary><strong>Antigravity CLI (<code>agy</code>)</strong> — plugin (MCP + skill + hooks)</summary>
 
-**Prerequisites:** Node.js >= 22.5 (or Bun), Antigravity CLI (`agy`) installed.
+> The `agy` **command-line tool**, not the Antigravity desktop IDE above.
 
-`agy` has a native **plugin** system, so context-mode installs as a first-class agy plugin that bundles the MCP server, a routing rule, a routing skill, and bounded hooks in one step.
+**Prerequisites:** Node.js >= 22.5 (or Bun), Antigravity CLI (`agy`) **≥ 1.0.7** (`agy update` to upgrade). Verified on agy 1.0.10.
 
-**Install** (same one-command pattern as OpenClaw — the script resolves the bundle path for you):
+**Install:**
 
-1. Make the MCP server available globally (the plugin runs the `context-mode` binary):
+```bash
+npm install -g context-mode                                                                  # the plugin's MCP server + hooks run the global binary
+agy plugin install https://github.com/mksglu/context-mode/tree/main/configs/antigravity-cli  # registers MCP + rule + skill + hooks
+```
 
-   ```bash
-   npm install -g context-mode
-   ```
+Restart `agy`.
 
-2. Clone and install the plugin:
-
-   ```bash
-   git clone https://github.com/mksglu/context-mode.git
-   cd context-mode
-   npm run install:agy
-   ```
-
-   `npm run install:agy` runs `agy plugin install` on the bundle at `configs/antigravity-cli/` — registering the MCP server from the bundle's native `mcp_config.json`, the routing rule, routing skill, bounded `PreToolUse`, `PostToolUse` capture, and best-effort `Stop` capture hooks — then clears agy's stale tool-schema cache so the `ctx_*` tools appear in the model's tool list (agy caches MCP schemas and doesn't refresh them; an old cache hides the tools). The installer is cross-platform Node (runs natively on Windows, macOS, and Linux — no bash required). Restart `agy`.
-
-   agy's native validation path expects root `plugin.json` + `mcp_config.json`; the bundle intentionally uses that single manifest shape.
-
-> **Hook version note:** the agy hooks run the **global** `context-mode` binary (`context-mode hook antigravity-cli <event>`), so they need a context-mode version with Antigravity CLI hook support. On an older global the **MCP server + routing rule + routing skill still work**, but hook enforcement/capture may be inert — the installer probes for this and prints a warning if your global is too old (upgrade with `npm install -g context-mode@latest`). To remove the plugin later: `agy plugin uninstall context-mode`.
-
-> **Already using context-mode in Claude Code?** `agy plugin import claude` can import that existing Claude setup, but the native context-mode agy bundle above is the supported path for agy hooks.
-
-**Verify:** `agy -p "Use the context-mode ctx_execute MCP tool to compute 7 + 5. Answer only the number." --dangerously-skip-permissions` should print `12`.
-
-**Install (alternative — MCP only):** add context-mode to `~/.gemini/config/mcp_config.json` (agy's **global** MCP profile — `config/`, distinct from the Antigravity IDE's `antigravity/` path):
+**MCP-only (no plugin, no hooks):** if you only want the `ctx_*` tools, skip the plugin and add context-mode to agy's global MCP profile `~/.gemini/config/mcp_config.json` (distinct from the Antigravity IDE's `~/.gemini/antigravity/` path), then restart `agy`:
 
 ```json
 { "mcpServers": { "context-mode": { "command": "context-mode" } } }
 ```
 
-**Routing & capture:** The routing rule plus routing skill provide the durable instruction layer, and bounded `PreToolUse` enforcement blocks mapped high-flood tools before execution (`run_command`, `view_file`, `grep_search`, `web_fetch`, `read_url_content`). `PostToolUse` records executed tool calls into `~/.gemini/context-mode/sessions/` and normalizes agy basics (`run_command`, `view_file`, `grep_search`, `list_dir`, `read_url_content`, `search_web`) onto context-mode's canonical tool names; `list_dir` and `search_web` are capture-only because context-mode has no LS/WebSearch PreToolUse routing branch. `Stop` is registered as best-effort session-end capture, but agy `-p` probes have not emitted it. `PreInvocation` and `PostInvocation` are intentionally not registered until agy's payload/response contract is verified for context-mode's pipeline. Auto-detected via MCP `clientInfo.name` (`agy`) or, in a bare shell, the `~/.local/bin/agy` / `~/.gemini/config/mcp_config.json` markers — probed before the generic `~/.claude` fallback so a gemini-cli→agy migrant is not mis-detected as Claude Code ([#774](https://github.com/mksglu/context-mode/issues/774)).
+**Verify:** type `ctx stats` in an agy session, or run any prompt from [Try It](#try-it) and check the savings. `context-mode doctor` confirms MCP + hook registration. Remove with `agy plugin uninstall context-mode`.
+
+**Routing:** the routing rule and skill provide the instruction layer; bounded `PreToolUse` blocks high-flood tools and `PostToolUse` captures sessions. The bundle pins `CONTEXT_MODE_PLATFORM=antigravity-cli` so agy is detected even when Claude Code is co-installed ([#774](https://github.com/mksglu/context-mode/issues/774)).
 
 </details>
 

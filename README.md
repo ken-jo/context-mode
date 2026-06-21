@@ -1482,7 +1482,6 @@ That blocks loopback + RFC1918 + ULA in addition to the always-blocked ranges. U
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CONTEXT_MODE_DISABLE_AGENT_INJECTION` | unset | Set to `1`, `true`, `yes`, or `on` to disable Claude Code `Agent` prompt injection. Main-session routing guidance and MCP redirects stay active; this only skips the extra routing block appended to spawned `Agent` prompts. Useful when foreground subagents should not be forced into `ctx_*` calls. |
 | `CONTEXT_MODE_EXTERNAL_MCP_NUDGE_EVERY` | `10` | Cadence (in tool calls) at which the PreToolUse hook re-injects the "wrap large external-MCP payloads in `ctx_execute`" guidance. The original implementation ([#529](https://github.com/mksglu/context-mode/pull/529)) fired only once per session, which got lost after context compaction in MCP-heavy sessions (e.g. 50+ Jira/Slack/Notion calls — see [#567](https://github.com/mksglu/context-mode/issues/567) follow-up). The default re-fires every 10th matching call, keeping the guidance in the model's recent window. Range `[1, 100]`; invalid values fall back to `10`. Set to `1` for "every call" (most aggressive — adds ~250 tokens/call) or to a larger value for less frequent reminders. |
 
 ## Contributing

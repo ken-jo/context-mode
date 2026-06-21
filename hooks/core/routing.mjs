@@ -76,11 +76,6 @@ function getExternalMcpNudgeEvery() {
   return parsed;
 }
 
-function isTruthyEnv(name) {
-  const raw = process.env[name];
-  return raw === "1" || /^(true|yes|on)$/i.test(raw ?? "");
-}
-
 function defaultGuidanceId() {
   return process.env.VITEST_WORKER_ID
     ? `${process.ppid}-w${process.env.VITEST_WORKER_ID}`
@@ -829,8 +824,6 @@ export function routePreToolUse(toolName, toolInput, projectDir, platform, sessi
   // ─── Agent: inject context-mode routing into subagent prompts ───
   // Subagents cannot use ctx commands (stats/doctor/upgrade/purge) — omit that section (#233)
   if (canonical === "Agent") {
-    if (isTruthyEnv("CONTEXT_MODE_DISABLE_AGENT_INJECTION")) return null;
-
     const subagentType = toolInput.subagent_type ?? "";
     // Detect the correct field name for the prompt/request/objective/question/query
     const fieldName = ["prompt", "request", "objective", "question", "query", "task"].find(f => f in toolInput) ?? "prompt";

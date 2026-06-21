@@ -4665,6 +4665,8 @@ async function main() {
   // Hardcoded /tmp on Unix to avoid TMPDIR mismatch (#347).
   const mcpSentinelDir = process.platform === "win32" ? tmpdir() : "/tmp";
   const mcpSentinel = join(mcpSentinelDir, `context-mode-mcp-ready-${process.pid}`);
+  // #844: handle to the periodic sentinel refresh timer (started after connect).
+  let sentinelRefresh: ReturnType<typeof setInterval> | undefined;
 
   // Clean up own DB + backgrounded processes + preload script on shutdown
   const shutdown = () => {
@@ -4673,6 +4675,8 @@ async function main() {
     try { unlinkSync(CM_FS_PRELOAD); } catch { /* best effort */ }
     // Remove MCP readiness sentinel (#230)
     try { unlinkSync(mcpSentinel); } catch { /* best effort */ }
+    // #844: stop refreshing the sentinel mtime on shutdown.
+    if (sentinelRefresh) clearInterval(sentinelRefresh);
   };
   const gracefulShutdown = async () => {
     // Final stats flush — bypass throttle so the last 0-500ms of
@@ -4698,6 +4702,16 @@ async function main() {
 
   // Write MCP readiness sentinel (#230)
   try { writeFileSync(mcpSentinel, String(process.pid)); } catch { /* best effort */ }
+
+  // #844: refresh the sentinel mtime while the server is alive so readiness
+  // probes from a foreign PID namespace (shared /tmp) can trust a recent
+  // sentinel even when process.kill(pid, 0) cannot see this PID. The reader's
+  // freshness window is 90s (hooks/core/mcp-ready.mjs); refresh at 30s (3x).
+  // unref() so this timer never keeps the event loop alive on its own.
+  sentinelRefresh = setInterval(() => {
+    try { writeFileSync(mcpSentinel, String(process.pid)); } catch { /* best effort */ }
+  }, 30_000);
+  sentinelRefresh.unref();
 
   // Detect platform adapter — stored for platform-aware session paths
   try {

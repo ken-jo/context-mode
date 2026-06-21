@@ -9,6 +9,7 @@ import {
   readFileSync,
   mkdtempSync,
   rmSync,
+  utimesSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -1018,6 +1019,15 @@ function createSentinel(pidOrLabel: number | string, content?: string): string {
   return path;
 }
 
+// #844: isMCPReady() only cleans up a dead-PID sentinel once it is OLDER than
+// the freshness window (a recently-refreshed sentinel may belong to a live
+// server in another PID namespace). Age a sentinel past that window so the
+// stale-cleanup path is exercised deterministically.
+function ageSentinel(path: string): void {
+  const tenMinAgoSec = Date.now() / 1000 - 600;
+  utimesSync(path, tenMinAgoSec, tenMinAgoSec);
+}
+
 function hasUnrelatedLiveSentinel(): boolean {
   try {
     const dir = sentinelDir();
@@ -1103,21 +1113,45 @@ describe.skipIf(POLLUTED)("mcp-ready: stale-cleanup self-healing", () => {
     fixtures.clear();
   });
 
-  it("unlinks a sentinel whose PID is dead", () => {
+  it("unlinks a STALE sentinel whose PID is dead", () => {
     const path = createSentinel(DEAD_PID);
+    ageSentinel(path);
     isMCPReady();
     expect(existsSync(path)).toBe(false);
     fixtures.delete(path);
   });
 
-  it("unlinks two dead sentinels in a single scan", () => {
+  it("unlinks two STALE dead sentinels in a single scan", () => {
     const a = createSentinel(DEAD_PID);
     const b = createSentinel(DEAD_PID - 1);
+    ageSentinel(a);
+    ageSentinel(b);
     expect(isMCPReady()).toBe(false);
     expect(existsSync(a)).toBe(false);
     expect(existsSync(b)).toBe(false);
     fixtures.delete(a);
     fixtures.delete(b);
+  });
+
+  // #844: a recently-refreshed sentinel must NOT be cleaned up even when its
+  // PID is invisible from this namespace (shared /tmp across PID namespaces).
+  it("keeps a FRESH dead/invisible-PID sentinel (#844 cross-namespace guard)", () => {
+    const path = createSentinel(DEAD_PID); // mtime = now → fresh
+    expect(isMCPReady()).toBe(true);
+    expect(existsSync(path)).toBe(true);
+    fixtures.delete(path);
+    try { unlinkSync(path); } catch { /* cleanup */ }
+  });
+
+  it("in one scan: keeps the FRESH sentinel and cleans the STALE one (#844)", () => {
+    const fresh = createSentinel(DEAD_PID);
+    const stale = createSentinel(DEAD_PID - 1);
+    ageSentinel(stale);
+    expect(isMCPReady()).toBe(true);
+    expect(existsSync(fresh)).toBe(true);
+    expect(existsSync(stale)).toBe(false);
+    fixtures.delete(fresh);
+    try { unlinkSync(fresh); } catch { /* cleanup */ }
   });
 });
 

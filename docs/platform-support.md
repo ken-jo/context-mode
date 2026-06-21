@@ -78,6 +78,7 @@ Claude Code is the primary platform for context-mode. All hooks communicate via 
 - `PreCompact` -- fires before context compaction
 - `SessionStart` -- fires when a session starts, resumes, or compacts
 - `UserPromptSubmit` -- fires when user submits a prompt
+- `Stop` -- fires when the assistant turn is about to end
 
 **Blocking:** `permissionDecision: "deny"` in response JSON
 

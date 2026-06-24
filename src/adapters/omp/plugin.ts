@@ -72,10 +72,6 @@ const BLOCKED_BASH_PATTERNS: RegExp[] = [
   /\bInvoke-WebRequest\b/,
 ];
 
-const TOOL_OUTPUT_REPLACE_MIN_BYTES = 5_000;
-const TOOL_OUTPUT_REPLACE_MIN_LINES = 20;
-const TOOL_OUTPUT_PREVIEW_CHARS = 240;
-
 // ── Module-level singletons ──────────────────────────────
 // Same shape as Pi: one DB per process, session ID rebound on each
 // session_start so multi-session reuse within a long-lived plugin
@@ -263,21 +259,10 @@ function byteLength(text: string): number {
   return Buffer.byteLength(text, "utf8");
 }
 
-function lineCount(text: string): number {
-  if (text.length === 0) return 0;
-  return text.split("\n").length;
-}
-
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function previewText(text: string): string {
-  const compact = text.replace(/\s+/g, " ").trim();
-  if (compact.length <= TOOL_OUTPUT_PREVIEW_CHARS) return compact;
-  return `${compact.slice(0, TOOL_OUTPUT_PREVIEW_CHARS)}...`;
 }
 
 function toolOutputSourceLabel(event: ToolResultEvent, mappedToolName: string, resultStr: string): string {
@@ -295,10 +280,14 @@ function shouldReplaceToolOutput(event: ToolResultEvent, resultStr: string): boo
   const content = Array.isArray(event?.content) ? event.content : [];
   const textOnly = content.length > 0
     && content.every((c) => c?.type === "text" && typeof c.text === "string");
-  if (!textOnly) return false;
+  return textOnly;
+}
 
-  return byteLength(resultStr) >= TOOL_OUTPUT_REPLACE_MIN_BYTES
-    || lineCount(resultStr) >= TOOL_OUTPUT_REPLACE_MIN_LINES;
+function buildToolOutputReplacementText(originalBytes: number, source: string): string {
+  return [
+    `[context-mode] OMP tool output indexed (${formatBytes(originalBytes)}).`,
+    `Use ctx_search(queries: ["..."], source: "${source}") to retrieve details.`,
+  ].join("\n");
 }
 
 type ToolResultReplacement = {
@@ -317,15 +306,12 @@ function indexAndReplaceToolOutput(
 
   const originalBytes = byteLength(resultStr);
   const source = toolOutputSourceLabel(event, mappedToolName, resultStr);
-  const store = getOrCreateStore(projectDir);
-  const indexed = store.indexPlainText(resultStr, source);
-  const replacementText = [
-    `[context-mode] OMP tool output indexed (${formatBytes(originalBytes)}, ${indexed.totalChunks} sections).`,
-    `Use ctx_search(queries: ["..."], source: "${indexed.label}") to retrieve details.`,
-    `Preview: ${previewText(resultStr)}`,
-  ].join("\n");
+  const replacementText = buildToolOutputReplacementText(originalBytes, source);
   const replacementBytes = byteLength(replacementText);
   if (replacementBytes >= originalBytes) return undefined;
+
+  const store = getOrCreateStore(projectDir);
+  store.indexPlainText(resultStr, source);
 
   return {
     result: {

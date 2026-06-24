@@ -297,17 +297,37 @@ describe("OMP plugin", () => {
       }
     });
 
-    it("does not replace small text output", async () => {
+    it("does not replace or index text output when the replacement would be larger", async () => {
       await registerOmpPlugin(api);
       await api._trigger("session_start", { type: "session_start" }, {});
 
       await expect(
         api._trigger("tool_result", {
           toolName: "read",
+          toolCallId: "call-small",
           input: { file_path: "/tmp/x.ts" },
           content: [{ type: "text", text: "export const x = 1;" }],
         }),
       ).resolves.toBeUndefined();
+
+      const pluginMod = await import("../../src/adapters/omp/plugin.js");
+      pluginMod._resetOmpPluginStateForTests();
+
+      const { OMPAdapter } = await import("../../src/adapters/omp/index.js");
+      const adapter = new OMPAdapter();
+      const contentDir = ensureWritableStorageDir(resolveContentStorageDir(() => adapter.getSessionDir()));
+      const storePath = resolveContentStorePath({ projectDir: tempDir, contentDir });
+      const store = new ContentStore(storePath);
+      try {
+        const matches = store.searchWithFallback(
+          "export const x",
+          3,
+          "omp-tool-result:Read:call-small",
+        );
+        expect(matches).toEqual([]);
+      } finally {
+        store.close();
+      }
     });
 
     it("does nothing when no session has started", async () => {

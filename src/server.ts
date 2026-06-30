@@ -54,6 +54,7 @@ import {
   emitSandboxExecuteEvent,
 } from "./session/event-emit.js";
 import { persistToolCallCounter, restoreSessionStats } from "./session/persist-tool-calls.js";
+import { appendRetrievalBytes } from "./session/retrieval-marker.js";
 import { searchAllSources } from "./search/unified.js";
 import {
   buildCtxSearchInputSchema,
@@ -69,7 +70,7 @@ import { stripJsonComments } from "./util/jsonc.js";
 import { resolveClaudeConfigDir } from "./util/claude-config.js";
 import { resolveProjectDir } from "./util/project-dir.js";
 import { loadDatabase } from "./db-base.js";
-import { AnalyticsEngine, formatReport, getConversationStats, getContentBytesAllSessions, getLifetimeStats, getMultiAdapterLifetimeStats, getRealBytesStats, pricePerToken } from "./session/analytics.js";
+import { AnalyticsEngine, formatReport, getConversationStats, getContentBytesAllSessions, getConversationWindowStats, getLifetimeStats, getMultiAdapterLifetimeStats, getRealBytesStats, pricePerToken } from "./session/analytics.js";
 const __pkg_dir = dirname(fileURLToPath(import.meta.url));
 const VERSION: string = (() => {
   for (const rel of ["../package.json", "./package.json"]) {
@@ -931,6 +932,17 @@ function trackResponse(toolName: string, response: ToolResult): ToolResult {
         bytesReturned: bytes,
       })
     );
+  }
+
+  // Retrieval ("With context-mode") bridge — ctx_search / ctx_fetch_and_index
+  // response bytes are the kept-out content the model paid to access. The
+  // PostToolUse hook never fires for the plugin's OWN MCP tools, so the
+  // hook-side extractMcpToolCall can never see these calls (bytes_retrieved
+  // was 0/124454 in prod). Drop the count into a marker keyed by the session
+  // DB; the next ordinary-tool PostToolUse consumes it and emits a forwardable
+  // bytes_retrieved event. Off the hot path; never throws.
+  if (toolName === "ctx_search" || toolName === "ctx_fetch_and_index") {
+    setImmediate(() => appendRetrievalBytes(getSessionDbPath(), bytes));
   }
 
   return response;
@@ -4035,11 +4047,21 @@ server.registerTool(
                     }
                   } catch { /* skip unreadable DB */ }
                 }
-                convReal = projectDirForSid
-                  ? getRealBytesStats({ projectDir: projectDirForSid, sessionsDir: getSessionDir(), worktreeHash: dbHash, contentDbPath })
-                  : getRealBytesStats({ sessionId: sid, sessionsDir: getSessionDir(), worktreeHash: dbHash, contentDbPath });
+                // Section 1 "Where you are now" = the LIVE conversation window.
+                // Sub-agents + ctx_execute sub-process sessions write to this
+                // SAME worktree DB (same worktreeHash = sha256(cwd)) under their
+                // own session_ids; their retrieval hit their own disposable
+                // windows, not yours. getConversationWindowStats credits the
+                // whole worktree's kept-out bytes while counting only THIS
+                // session's retrieval as "With context-mode", and the
+                // worktreeHash scope keeps the user's OTHER parallel worktrees
+                // out. projectDirForSid is intentionally dropped — it
+                // under-counted (missed empty-project_dir sub-process sessions)
+                // and could not separate sub-agent retrieval from the window's.
+                void projectDirForSid;
+                convReal = getConversationWindowStats({ sessionId: sid, worktreeHash: dbHash, sessionsDir: getSessionDir(), contentDbPath });
               } catch {
-                convReal = getRealBytesStats({ sessionId: sid, sessionsDir: getSessionDir(), worktreeHash: dbHash, contentDbPath });
+                convReal = getConversationWindowStats({ sessionId: sid, worktreeHash: dbHash, sessionsDir: getSessionDir(), contentDbPath });
               }
               const lifeRealBase = getRealBytesStats({ sessionsDir: getSessionDir() });
               // v1.0.134 SLICE C: lifetime tier sums ALL chunks (no
